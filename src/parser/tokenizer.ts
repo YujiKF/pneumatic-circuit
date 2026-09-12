@@ -10,9 +10,12 @@
  *   SIGN       := '+' | '-'
  *   TIMER      := 'T'  (reserved: marks a timer/temporizador delay)
  *
- * Separators: ASCII whitespace and ';' act only as delimiters and are ignored
- * (so "A+B+", "A+ B+", "A+;B+" tokenize identically). See
- * docs/PMR3407_RULES.md, "Sequence notation".
+ * Separators: ASCII whitespace, ';' and '/' act only as delimiters and are
+ * ignored (so "A+B+", "A+ B+", "A+;B+" and "A+B+/B-A-" tokenize identically).
+ * The '/' form is the cascade group-boundary notation used in the course
+ * (e.g. "A+B+/B-A-"); it carries no semantics beyond separating movements,
+ * because the cascade group division is derived generically from the steps.
+ * See docs/PMR3407_RULES.md, "Sequence notation".
  *
  * The tokenizer performs LEXICAL validation only (illegal characters). Higher
  * level structure (double signs, dangling signs, unbalanced parens) is checked
@@ -34,7 +37,7 @@ export interface Token {
 }
 
 const LETTER = /^[A-Za-z]$/;
-const SEPARATOR = /^[\s;]$/;
+const SEPARATOR = /^[\s;/]$/;
 
 /**
  * The reserved timer marker. PMR3407 uses uppercase 'T' as a temporizador
@@ -76,7 +79,7 @@ export function tokenize(raw: string): Result<Token[]> {
       ParseErrorCode.INVALID_CHARACTER,
       `Invalid character ${JSON.stringify(ch)} at position ${i}. ` +
         `A sequence may only contain actuator letters (A-Z), the signs '+'/'-', ` +
-        `the timer marker 'T', parentheses '()', and separators (space or ';').`,
+        `the timer marker 'T', parentheses '()', and separators (space, ';' or '/').`,
       i,
     );
   }

@@ -44,7 +44,13 @@ Source: course sequence-notation convention; worked exercise sequences.
   - compact: `A+B+A-B-`
   - space-separated: `A+ B+ A- B-`
   - semicolon-separated: `A+;B+;A-;B-`
+  - slash-separated (cascade group-boundary notation): `A+B+/B-A-`
   - lowercase: `a+b+a-b-`
+
+  `/` is treated purely as a separator (like space/`;`); it carries no logical
+  meaning, because the cascade group division is derived **generically** from
+  the steps, not read off the `/` marks. Thus `A+B+/B-A-` and `A+B+B-A-`
+  produce the identical canonical model and the identical cascade grouping.
 
 **Reserved letter:** `T` is reserved for the timer marker and is therefore not
 usable as an actuator letter (see Ambiguities §A5). Actuators are drawn from
@@ -185,8 +191,12 @@ Source: cascade decks; worked group-division exercises.
 2. **A group may not contain the same actuator moving in both directions.** As
    soon as adding the next movement would put both `X+` and `X-` in one group,
    **close the current group and open a new one**.
-3. The number of memories (pressure lines) required is `Nm = (number of groups)`
-   and the number of switching memory elements is `groups − 1`.
+3. There is **one pressure LINE per group** (so `numberOfGroups` lines), and the
+   number of **switching memory VALVES** is `Nm = groups − 1`. The memory
+   valves are **bistable double-pilot 4/2 or 5/2 valves**. Throughout the code
+   and tests, `Nm` (the quantity asserted by golden tests) is the *memory-valve*
+   count `groups − 1`; the line count is `numberOfGroups`. Two groups therefore
+   need `Nm = 1`, four groups need `Nm = 3`.
 4. **Last-into-first merge optimization:** if the last group and the first group
    do not conflict (no shared actuator with opposite signs across the wrap),
    they may be merged to reduce the memory count. (Exact edge cases — see §A3.)
@@ -288,9 +298,34 @@ appears at both the very end and the very beginning of the cycle.
 **Chosen convention (deterministic):** merge the last group into the first
 **only if** the union of the two groups still contains **no actuator with both
 `+` and `-`**. If merging would create such a conflict, keep them separate.
-This is conservative (never produces an invalid group) and deterministic. The
-cascade solver feature will encode this as a testable rule and add golden
-exercises.
+This is conservative (never produces an invalid group) and deterministic.
+
+**Implementation (FEAT-003, `src/engine/cascade/groups.ts`):** `divideIntoGroups`
+performs the left-to-right scan, then — when `mergeLastIntoFirst` is enabled
+(the default) and there are ≥ 2 groups — checks whether the union of the FIRST
+and LAST groups is conflict-free; if so it prepends the last group's steps to
+the first group and drops the standalone last group, reducing `Nm` by one. Both
+the merge and non-merge outcomes are covered by tests. Worked outcomes:
+
+- `A+B+B-A-` / `A+B+/B-A-` → `[A+ B+] [B- A-]`, `Nm = 1`. The wrap union
+  `{A+,B+,B-,A-}` conflicts on **both** A and B, so **no merge** (stays 2
+  groups).
+- `A+B+A-B-` → raw groups `[A+ B+] [A- B-]`; the wrap union again conflicts on
+  A and B, so **no merge**.
+- A genuine **MERGE case**: `A+A-A+` → raw groups `[A+] [A-] [A+]` (three
+  groups, `Nm = 2`). The FIRST group `[A+]` and the LAST group `[A+]` share
+  only `A+` (same sign, no conflict), so they merge into `[A+ A+]`, leaving
+  `[A+ A+] [A-]` (two groups, `Nm = 1`). The middle group is untouched.
+- A **NON-merge case**: `A+B+B-A-` → raw groups `[A+ B+] [B- A-]`; the wrap
+  union `{A+,B+,B-,A-}` conflicts on **both** A and B, so the groups stay
+  separate (`Nm = 1`, unchanged). Balanced cycles that retract in reverse order
+  (the common textbook shape) are exactly this non-merge case.
+
+Because a balanced cycle usually re-uses the opening cylinders in reverse at the
+end, a merge is only possible when the tail re-drives a head cylinder in the
+**same** direction it opened with. The algorithm handles this generically and
+the test-suite pins both a real merge (`A+A-A+`) and a real non-merge
+(`A+B+B-A-`) — see `tests/engine/cascade-groups.test.ts`.
 
 ### A4. Timer delay defaults
 

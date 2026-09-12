@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Cascade method: implement the generic group-division algorithm and a cascade solver producing a logical circuit (memory valves = groups - 1, group activation on last event of previous group, memory reset on group change). Group division must be testable independently of drawing. Add cascade golden tests. Depends on FEAT-001 (and FEAT-002 for shared model/validator).",
+  "status": "completed",
+  "steps": [
+    "Implement src/engine/cascade group-division: walk the sequence left to right, starting a NEW group whenever adding the next movement would place the SAME cylinder letter with an OPPOSITE sign into the current group. Return an ordered list of CascadeGroups (each a list of Movements). Do NOT hardcode any known exercise's grouping - it must be derived generically.",
+    "Implement the last-into-first merge optimization: if merging the last group into the first group does not violate the same-letter-opposite-sign rule, merge to reduce memory count. Cover this behavior explicitly (and its edge cases) with tests; document any ambiguous merge case in docs/PMR3407_RULES.md.",
+    "Compute number of memory valves Nm = numberOfGroups - 1 and expose it. Build the cascade logical circuit: bistable double-pilot memory valves for group selection, group pressure lines, intra-group sensors placed between the pressure line and the cylinder main valve, and group-activation sensors driving the memory valves. Keep pneumatic and (if electropneumatic requested) electrical models separate as in FEAT-002.",
+    "Write tests/engine for group division on: 'A+B+B-A-' style, 'A+B+/B-A-' -> Group I [A+ B+], Group II [B- A-]; 'B-C+A+B+C-A-'; and 'A+B-B+T(A-B-)B+' -> groups [A+B-][B+][T(A-B-)][B+] with Nm=3. Assert group contents and Nm.",
+    "Add tests/golden entries for the cascade worked examples above (input, method=cascade, type, expected groups + Nm, and where feasible expected memory-valve and line structure). Run the CircuitValidator over the produced cascade circuits and assert zero issues.",
+    "Run typecheck and full test suite; ensure cascade group-division and golden tests pass. Record findings including any group-merge ambiguity resolutions."
+  ],
+  "acceptance_criteria": [
+    "Group division for 'A+B+B-A-'/'A+B+/B-A-' yields Group I [A+,B+] and Group II [B-,A-]; test asserts and passes.",
+    "For 'A+B-B+T(A-B-)B+' the algorithm yields the documented groups with Nm=3.",
+    "The last-into-first merge optimization is implemented generically and covered by a test that verifies both a merge case and a non-merge case.",
+    "Cascade-produced circuits pass CircuitValidator with zero issues.",
+    "`unset NODE_OPTIONS && tsc --noEmit` and `node --test ...` both pass with cascade tests green."
+  ],
+  "verification": [
+    "unset NODE_OPTIONS && cd /projects/sandbox && tsc --noEmit -p tsconfig.json",
+    "unset NODE_OPTIONS && cd /projects/sandbox && node --test \"tests/**/*.test.ts\" \"src/**/*.test.ts\""
+  ],
+  "blocked_reason": null,
+  "findings": "COMPLETED. Implemented src/engine/cascade: (1) groups.ts pure generic group-division (divideIntoGroups) walking the sequence left-to-right over STEPS, opening a new group when a step would put a cylinder with an opposite sign into the current group; returns ordered DividedGroups + numberOfGroups + numberOfMemories (Nm = groups-1) + merged flag. (2) last-into-first merge optimization: merges the LAST group's steps into the FIRST when their union has no same-letter-opposite-sign conflict (default on; toggle via mergeLastIntoFirst). (3) model.ts CascadeLogicalModel (pressure lines, bistable double-pilot memory valves, intra-group start sensors, group-activation sensors) + solver.ts (solveCascade) + circuit.ts (toCascadeCircuit) projecting a flat pneumatic Circuit that passes validateCircuit with ZERO issues. Nm clarification: RULES.md §7 says lines=groups and switching memory VALVES = groups-1; golden targets (Nm=1 for 2 groups, Nm=3 for 4 groups) confirm Nm = numberOfMemories = groups-1. This is what tests assert; RULES.md §7.3 updated to state this precisely. Parser enhancement: added '/' as a separator (equivalent to space/';') so the course cascade group-boundary notation 'A+B+/B-A-' parses to the identical canonical model as 'A+B+B-A-'; tokenizer + RULES.md §1 updated; existing INVALID_CHARACTER test (uses '@') unaffected. Merge doc §A3 updated with concrete worked merge (A+A-A+: 3 groups Nm2 -> 2 groups Nm1) and non-merge (A+B+B-A-) examples. Group division verified generically for all golden exercises: A+B+B-A- & A+B+/B-A- -> [A+B+][B-A-] Nm=1; B-C+A+B+C-A- -> [B-C+A+][B+C-A-] Nm=1; A+B-B+T(A-B-)B+ -> [A+B-][B+][A-B-][B+] Nm=3. TESTS: added tests/engine/cascade-groups.test.ts (8 tests incl. merge + non-merge) and tests/golden/cascade.golden.test.ts (5 tests, all run validateCircuit -> ok). Full suite: tsc --noEmit clean; node --test = 66 tests pass, 0 fail (was 53 in FEAT-002; +13 cascade). Did NOT implement layout/SVG/UI (FEAT-004)."
+}
