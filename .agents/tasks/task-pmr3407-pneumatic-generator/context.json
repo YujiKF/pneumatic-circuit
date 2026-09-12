@@ -1,0 +1,28 @@
+{
+  "project_type": "Deterministic pneumatic/electropneumatic circuit generator for the PMR3407 course. Pure-TypeScript framework-independent core (parser -> sequence model -> method solver -> logical circuit model -> validator -> layout -> SVG renderer -> simulator) plus a best-effort React+Vite UI.",
+  "language": "TypeScript (ES modules)",
+  "build_system": "No bundler required for the core. Node.js v22 runs .ts files directly via native type-stripping (no compile step). Type-checking via globally installed tsc v7. React/Vite UI is best-effort only.",
+  "test_framework": "Node.js built-in test runner (`node --test`) with `node:test` + `node:assert/strict`. Tests are written directly in TypeScript (*.test.ts) and executed with `node --test`. No Vitest/Jest available. Property-based tests use a small hand-rolled generator+shrinker helper (fast-check is NOT installable).",
+  "build_command": "unset NODE_OPTIONS && tsc --noEmit -p tsconfig.json   (type-check only; there is no emit/bundle step for running or testing the core)",
+  "test_command": "unset NODE_OPTIONS && node --test \"tests/**/*.test.ts\" \"src/**/*.test.ts\"   (Node v22 native TS; run from /projects/sandbox)",
+  "verification_instructions": "1) unset NODE_OPTIONS (the sandbox sets a broken NODE_OPTIONS preload that must be cleared in every shell). 2) Type-check: tsc --noEmit -p tsconfig.json. 3) Run tests: node --test on the tests/ and src/ trees. A task is DONE only when its associated tests pass, not merely when tsc passes. 4) For the UI: attempting `npm run dev`/`vite build` requires the npm registry which is BLOCKED; document rather than treat as failure.",
+  "snapshot_or_generated_files": "none. SVG output is produced at runtime by the renderer and is not checked in as snapshots initially. If golden SVG snapshots are added later, regenerate via the renderer entrypoint.",
+  "setup_instructions": "No install needed for the core. Ensure `unset NODE_OPTIONS` in each shell. Node v22 (default) is required for native TS type-stripping. tsconfig.json should set: module=nodenext, moduleResolution=nodenext, target=es2022, strict=true, noEmit=true, allowImportingTsExtensions=true, verbatimModuleSyntax=true. Source imports MUST use explicit .ts extensions (required by Node's native TS loader).",
+  "environment_constraints": "NETWORK: INTEGRATIONS_ONLY - the public npm registry returns 403 Forbidden. `npm install` of ANY third-party package (typescript, react, vite, vitest, fast-check) WILL FAIL. Therefore: the core has ZERO runtime/dev npm dependencies and relies solely on globally-preinstalled tooling (tsc v7, prettier, eslint) plus Node built-ins. LANGUAGE CONSTRAINT (critical): Node v22 strip-only mode does NOT support `enum`, `const enum`, `namespace`, parameter properties (constructor(private x), or experimental decorators. Use string-literal union types + `as const` objects instead of enums. All relative imports must include the `.ts` extension. NODE_OPTIONS is set to a broken preload and must be unset in every command.",
+  "contribution_requirements": "No CONTRIBUTING.md exists (greenfield). Source of truth priority per user: (1) PMR3407 materials, (2) worked exercises, (3) rules consistently deduced from those exercises, (4) conventional pneumatic norms only where the material is silent. Ambiguities MUST be recorded, never hidden. Task completion requires passing tests, not compilation.",
+  "key_patterns": "Clean pipeline separation: Parser -> SequenceModel -> MethodSolver -> CircuitLogicalModel -> Validator -> LayoutEngine -> SVGRenderer -> Simulator. The renderer NEVER decides logic; it draws a validated Circuit. Each method (intuitive/cascade/step-by-step) is an independent module receiving a normalized sequence and producing a logical Circuit. Domain uses immutable data + string-literal unions. Step-by-step step memory MUST use a correctly-placed SEAL/SELO holding contact so the step does not drop when the cylinder leaves the sensor that started it - this exact bug must be catchable by a test.",
+  "relevant_files": [
+    "docs/PMR3407_RULES.md (formal rules spec, with Ambiguities section)",
+    ".kiro/specs/pmr3407-pneumatic-circuit-generator/requirements.md",
+    ".kiro/specs/pmr3407-pneumatic-circuit-generator/design.md",
+    ".kiro/specs/pmr3407-pneumatic-circuit-generator/tasks.md",
+    "src/domain/ (Sequence, Movement, Cylinder, Sensor, valves, Relay, Contact, Coil, Memory, Step, CascadeGroup, Connection, Circuit)",
+    "src/parser/ (tokenizer + normalizer accepting A+B+A-B-, spaced, semicolon, lowercase; rejecting A++, AB+, A+X, ++B)",
+    "src/engine/step-by-step/ (first milestone solver)",
+    "src/engine/cascade/ (group-division algorithm)",
+    "src/validator/ (CircuitValidator)",
+    "tests/parser, tests/engine, tests/golden, tests/properties",
+    "tsconfig.json, package.json"
+  ],
+  "directory_structure": "Per user spec: src/{domain,parser,engine/{intuitive,cascade,step-by-step},validator,layout,renderer/{pneumatic,electrical},simulator,ui}; tests/{parser,engine,golden,properties}; docs/PMR3407_RULES.md; Kiro spec under .kiro/specs/pmr3407-pneumatic-circuit-generator/."
+}

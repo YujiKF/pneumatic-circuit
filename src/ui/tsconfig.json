@@ -1,0 +1,17 @@
+{
+  "//": "Separate tsconfig for the best-effort React UI. It is intentionally NOT referenced by the core tsconfig so the core type-check/test stays green even though React/Vite cannot be installed here (npm registry blocked). Run `npm install` in a networked environment, then `tsc -p src/ui/tsconfig.json` to type-check the UI.",
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "./**/*.tsx", "../pipeline.ts"]
+}

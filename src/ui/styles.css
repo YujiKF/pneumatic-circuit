@@ -1,0 +1,133 @@
+:root {
+  --ink: #111;
+  --accent: #1a56db;
+  --rail: #b91c1c;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: #f7f7f8;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+h1 {
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e2e2e5;
+  border-radius: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.field input {
+  padding: 8px;
+  font-size: 1rem;
+  border: 1px solid #cfcfd4;
+  border-radius: 6px;
+}
+
+fieldset {
+  border: 1px solid #e2e2e5;
+  border-radius: 6px;
+}
+
+.radio {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.generate {
+  padding: 10px 20px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.result {
+  margin-top: 24px;
+}
+
+.tabs,
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab,
+.actions button {
+  padding: 8px 14px;
+  border: 1px solid #cfcfd4;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.tab-body {
+  margin: 16px 0;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e2e2e5;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.error,
+.fail {
+  color: var(--rail);
+  font-weight: 600;
+}
+
+.ok {
+  color: #15803d;
+  font-weight: 600;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border: 1px solid #e2e2e5;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+figure svg {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #eee;
+}

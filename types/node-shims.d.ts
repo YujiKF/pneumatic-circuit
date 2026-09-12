@@ -44,7 +44,11 @@ declare module 'node:assert/strict' {
     ok(value: unknown, message?: string | Error): asserts value;
     strictEqual(actual: unknown, expected: unknown, message?: string | Error): void;
     deepStrictEqual(actual: unknown, expected: unknown, message?: string | Error): void;
-    throws(fn: () => unknown, message?: string | Error): void;
+    throws(
+      fn: () => unknown,
+      expected?: string | Error | RegExp | ((err: unknown) => boolean) | (new (...args: never[]) => Error),
+      message?: string | Error,
+    ): void;
     doesNotThrow(fn: () => unknown, message?: string | Error): void;
     fail(message?: string | Error): never;
     match(value: string, regexp: RegExp, message?: string | Error): void;
