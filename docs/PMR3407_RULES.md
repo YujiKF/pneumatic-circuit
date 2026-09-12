@@ -332,9 +332,23 @@ the test-suite pins both a real merge (`A+A-A+`) and a real non-merge
 **Problem:** the numeric delay of a `T` step (e.g. `[0.3]` s) is not encoded in
 the textual sequence.
 
-**Chosen convention:** the sequence model records only the presence of a timer
-(`hasTimer`). A default delay value is assigned by the electropneumatic layer
-(a later feature) and is configurable; it is **not** invented at parse time.
+**Chosen convention (deferral, deliberate):** the sequence model records only
+the presence of a timer (`hasTimer`); there is **no** numeric-delay token in the
+grammar (`src/parser/tokenizer.ts` recognizes only the reserved `T` marker), so
+a delay is **never invented at parse time**. The electropneumatic step-by-step
+layer (`solveStepByStep`) assigns the timer relay a delay from its
+`defaultDelaySeconds` option — default **0.3 s**, and **configurable** by the
+caller. The value shown on the timer relay is therefore this default/configured
+constant, not an authored per-step value.
+
+**Status (v1 review, issue 4):** this is a scoped deferral, not a bug. Threading
+a parsed per-step delay would require (a) extending the grammar/tokenizer with a
+`T[..]` delay token, (b) carrying it on `Step`, and (c) threading it through the
+solver. That is out of scope for the first milestone. The behavior is pinned by
+`tests/engine/timer-delay.test.ts` (default 0.3 s applied to the timer step; a
+caller-supplied `defaultDelaySeconds` threaded through; non-timer steps carry no
+delay). If the grammar later gains a delay token, update that test, this section,
+and the tokenizer together.
 
 ### A5. `T` as a reserved letter
 
@@ -353,6 +367,21 @@ requiring an explicit timer syntax (e.g. `T[..]`).
 **Chosen convention:** movements inside a group are **canonicalized in
 alphabetical order** so equivalent inputs compare equal. Physical simultaneity
 is unaffected.
+
+**Transition gating out of a simultaneous group (v1 review, issue 5):** a step
+that follows a parenthesized simultaneous group is gated on the arrival sensors
+of **ALL** members of that group, in **series (AND)**, not just the last-listed
+member. Co-termination is **not assumed**: if the members finish at different
+times the next step waits for the LAST one to arrive. The step-by-step solver
+records the full set on `PlanStep.enableSensorIds` and the activation rung adds
+one `prev-sensor` NO contact per member; the validator's IMPOSSIBLE_TRANSITION
+check verifies every member sensor is producible. Pinned by
+`tests/golden/simultaneous-gating.test.ts` (model exposes both member sensors;
+the activation rung has a contact per member; the real `settleLadder` holds the
+next relay OFF until every member has arrived). Note: the single-event physics
+of the simulator still moves the members of one step together (one round), so
+this stricter gating matters at the ladder/logic level and guards against a
+future finer-grained physics model enabling the next step early.
 
 ### A7. Source-attribution confidence
 

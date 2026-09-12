@@ -122,7 +122,7 @@ function evaluateRung(rung: Rung, state: SimState, startButtonId: string): boole
  * multiply-driven coil rung-by-rung with last-writer-wins would oscillate, so
  * the OR is explicit here.
  */
-function settleLadder(
+export function settleLadder(
   model: CircuitLogicalModel,
   state: SimState,
   events: SimEvent[],
@@ -256,7 +256,7 @@ function switchAndMove(
  */
 export function runCycle(
   model: CircuitLogicalModel,
-  options: { pulseStart?: boolean } = {},
+  options: { pulseStart?: boolean; maxPhysicalEvents?: number } = {},
 ): SimResult {
   const state = initialSimState(model);
   const events: SimEvent[] = [];
@@ -274,10 +274,18 @@ export function runCycle(
 
   let completed = false;
   let rounds = 0;
+  let physicalEvents = 0;
+  // Optional cap on the number of physical (cylinder) events. Lets callers
+  // (e.g. the seal-regression test) stop the REAL engine right after the first
+  // cylinder motion and inspect intermediate relay state. Undefined = run the
+  // whole cycle.
+  const maxPhysicalEvents = options.maxPhysicalEvents ?? Number.POSITIVE_INFINITY;
   const maxRounds = model.steps.length * 4 + 8;
   while (rounds < maxRounds) {
+    if (physicalEvents >= maxPhysicalEvents) break;
     rounds++;
     const moved = applyOnePhysicalEvent(model, state, events);
+    if (moved) physicalEvents++;
     settleLadder(model, state, events);
 
     if (

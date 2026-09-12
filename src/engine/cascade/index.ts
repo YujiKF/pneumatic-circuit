@@ -1,6 +1,6 @@
 /** Cascade engine barrel (método cascata). */
 
-export { divideIntoGroups } from './groups.ts';
+export { divideIntoGroups, cascadeExecutionOrder } from './groups.ts';
 export type {
   DividedGroup,
   GroupDivision,

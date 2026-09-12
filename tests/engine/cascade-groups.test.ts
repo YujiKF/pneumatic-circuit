@@ -17,8 +17,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSequence } from '../../src/parser/index.ts';
-import { divideIntoGroups } from '../../src/engine/index.ts';
+import { divideIntoGroups, cascadeExecutionOrder } from '../../src/engine/index.ts';
 import type { GroupDivision } from '../../src/engine/index.ts';
+import type { SequenceModel } from '../../src/domain/index.ts';
+
+/** The original movement order of a parsed sequence, e.g. ['A+','A-','A+']. */
+function originalOrder(seq: SequenceModel): string[] {
+  const out: string[] = [];
+  for (const step of seq.steps) {
+    for (const mv of step.movements) out.push(`${mv.actuator}${mv.direction}`);
+  }
+  return out;
+}
+
+/** Reconstructed cascade execution order, e.g. ['A+','A-','A+']. */
+function execOrder(division: GroupDivision): string[] {
+  return cascadeExecutionOrder(division).map((m) => `${m.actuator}${m.direction}`);
+}
 
 /** Render a division as "A+B+ | B-A-" strings for compact assertions. */
 function shape(division: GroupDivision): string[] {
@@ -122,6 +137,47 @@ test("a single-group sequence needs zero memories", () => {
   assert.equal(d.numberOfGroups, 1);
   assert.equal(d.numberOfMemories, 0);
   assert.equal(d.merged, false);
+});
+
+// ---------------------------------------------------------------------------
+// Merge PRESERVES execution order (review issue 3).
+//
+// The last-into-first merge appends the last group's movements to the FIRST
+// group's line, which naively looks like it moves the trailing movement to the
+// cycle START. It does NOT: in a cascade the first line is the DEFAULT/rest
+// live line, so the merged-in movements physically run at the cycle END (when
+// control wraps back to line 1). cascadeExecutionOrder models that wrap, and it
+// must reproduce the ORIGINAL sequence order.
+// ---------------------------------------------------------------------------
+test("MERGE preserves execution order: A+A-A+ still runs A+ then A- then A+", () => {
+  const parsed = parseSequence('A+A-A+');
+  assert.ok(parsed.ok);
+  const division = divideIntoGroups(parsed.value); // merge on by default
+  assert.equal(division.merged, true, 'A+A-A+ merges');
+  // The merged group carries exactly one wrapped-in tail movement (the last A+).
+  assert.equal(division.groups[0]!.mergedTailCount, 1);
+  // Even though the group SHAPE is [A+A+][A-], the physical execution order,
+  // following the cascade wrap, equals the original sequence.
+  assert.deepEqual(execOrder(division), ['A+', 'A-', 'A+']);
+  assert.deepEqual(execOrder(division), originalOrder(parsed.value));
+});
+
+test("NON-merge keeps execution order = original (A+B+B-A-)", () => {
+  const parsed = parseSequence('A+B+B-A-');
+  assert.ok(parsed.ok);
+  const division = divideIntoGroups(parsed.value);
+  assert.equal(division.merged, false);
+  assert.equal(division.groups[0]!.mergedTailCount, 0);
+  assert.deepEqual(execOrder(division), originalOrder(parsed.value));
+});
+
+test("merged-tail count is zero for every non-first group", () => {
+  const parsed = parseSequence('A+A-A+');
+  assert.ok(parsed.ok);
+  const division = divideIntoGroups(parsed.value);
+  for (let i = 1; i < division.groups.length; i++) {
+    assert.equal(division.groups[i]!.mergedTailCount, 0, `group ${i + 1} has no tail`);
+  }
 });
 
 test("group numbers are 1-based and contiguous (Grupo I, II, ...)", () => {

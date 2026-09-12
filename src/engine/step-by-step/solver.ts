@@ -110,16 +110,22 @@ function buildPlanSteps(steps: readonly Step[], defaultDelay: number): PlanStep[
     const step = steps[i] as Step;
     const movements = step.movements.map((mv) => toPlanMovement(mv));
 
-    // The sensor that ENABLES this step is the arrival sensor of the PREVIOUS
-    // step's movement (rule 2). For simultaneous previous steps we take the
-    // LAST movement's arrival sensor deterministically (alphabetically the
-    // canonical order already sorts groups; we use the last listed movement).
+    // The sensors that ENABLE this step are the end-of-course sensors of the
+    // PREVIOUS step's movement(s) (rule 2). For a SIMULTANEOUS predecessor we
+    // gate on ALL of its members' arrival sensors (co-terminal is NOT assumed):
+    // the transition may only fire once EVERY member of the group has arrived,
+    // not just the last-listed one (review issue 5). `enableSensorId` keeps the
+    // last-listed sensor for display/explanation.
     let enableSensorId: string | undefined;
+    let enableSensorIds: string[] | undefined;
     let enabledByStart = false;
     if (i === 0) {
       enabledByStart = true;
     } else {
       const prev = steps[i - 1] as Step;
+      enableSensorIds = prev.movements.map((mv) =>
+        sensorIdForArrival(mv.actuator, mv.direction),
+      );
       const lastPrevMv = prev.movements[prev.movements.length - 1] as Movement;
       enableSensorId = sensorIdForArrival(lastPrevMv.actuator, lastPrevMv.direction);
     }
@@ -131,6 +137,7 @@ function buildPlanSteps(steps: readonly Step[], defaultDelay: number): PlanStep[
       hasTimer: step.hasTimer,
       ...(step.hasTimer ? { delaySeconds: defaultDelay } : {}),
       ...(enableSensorId !== undefined ? { enableSensorId } : {}),
+      ...(enableSensorIds !== undefined ? { enableSensorIds } : {}),
       enabledByStart,
     };
     plan.push(planStep);
@@ -176,24 +183,43 @@ function buildLadder(
 
     // --- activation (set) branch ---
     const activationContacts: RungContact[] = [];
+    // Extra wrap branch for the first rung in continuous mode (see below).
+    let wrapBranch: RungBranch | undefined;
     if (isFirst) {
       activationContacts.push({ driverId: startButtonId, type: 'NO', role: 'start' });
-      // Extra ARMING contact for the last line: prime the first rung so a
-      // single START press begins correctly / continuous wraps around.
-      // single  -> last relay NC (armed while last line is OFF)
-      // continuous -> last relay NO (wrap: last line re-arms the first)
       const lastRelay = steps[n - 1] as PlanStep;
-      activationContacts.push({
-        driverId: lastRelay.relayId,
-        type: cycleMode === 'continuous' ? 'NO' : 'NC',
-        role: 'arming',
-      });
+      if (cycleMode === 'continuous') {
+        // CONTINUOUS: the last line re-arms the first for wrap-around. This must
+        // be a PARALLEL branch (OR), not in series with START, otherwise the
+        // very first press could never start the cycle (K_last is OFF at rest,
+        // so a series NO contact would block START). Modeled as its own branch
+        // holding the last relay's NO contact.
+        wrapBranch = {
+          contacts: [{ driverId: lastRelay.relayId, type: 'NO', role: 'arming' }],
+        };
+      } else {
+        // SINGLE: an arming NC contact of the last relay, in SERIES with START,
+        // keeps the first line armed only while the last line is OFF (so the
+        // cycle runs exactly once per press and cannot restart itself).
+        activationContacts.push({
+          driverId: lastRelay.relayId,
+          type: 'NC',
+          role: 'arming',
+        });
+      }
     } else {
       const prev = steps[i - 1] as PlanStep;
       activationContacts.push({ driverId: prev.relayId, type: 'NO', role: 'prev-line' });
-      if (step.enableSensorId !== undefined) {
+      // Gate on ALL of the previous step's arrival sensors, in SERIES (AND), so
+      // a simultaneous predecessor must have EVERY member arrive before this
+      // step can energize (review issue 5). Falls back to the single
+      // enableSensorId for an ordinary predecessor.
+      const prevSensors =
+        step.enableSensorIds ??
+        (step.enableSensorId !== undefined ? [step.enableSensorId] : []);
+      for (const sensorId of prevSensors) {
         activationContacts.push({
-          driverId: step.enableSensorId,
+          driverId: sensorId,
           type: 'NO',
           role: 'prev-sensor',
         });
@@ -219,9 +245,14 @@ function buildLadder(
       resetContacts.push({ driverId: first.relayId, type: 'NC', role: 'reset' });
     }
 
+    const setBranches: RungBranch[] =
+      wrapBranch !== undefined
+        ? [activationBranch, wrapBranch, sealBranch]
+        : [activationBranch, sealBranch];
+
     rungs.push({
       number: rungNumber++,
-      setBranches: [activationBranch, sealBranch],
+      setBranches,
       resetContacts,
       coil: { kind: 'relay', id: step.relayId },
     });
@@ -260,7 +291,11 @@ function buildPneumatic(actuators: readonly string[]): PneumaticModel {
 function collectSensorIds(steps: readonly PlanStep[]): string[] {
   const set = new Set<string>();
   for (const step of steps) {
-    if (step.enableSensorId !== undefined) set.add(step.enableSensorId);
+    if (step.enableSensorIds !== undefined) {
+      for (const id of step.enableSensorIds) set.add(id);
+    } else if (step.enableSensorId !== undefined) {
+      set.add(step.enableSensorId);
+    }
     for (const mv of step.movements) set.add(mv.arrivalSensorId);
   }
   return [...set].sort();

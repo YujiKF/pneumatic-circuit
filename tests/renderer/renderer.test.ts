@@ -13,7 +13,12 @@ import { parseSequence } from '../../src/parser/index.ts';
 import { solveStepByStep, toCircuit } from '../../src/engine/index.ts';
 import type { CircuitLogicalModel } from '../../src/engine/index.ts';
 import type { Circuit } from '../../src/domain/index.ts';
-import { renderPneumatic, renderLadder, RenderRefusedError } from '../../src/renderer/index.ts';
+import {
+  renderPneumatic,
+  renderLadder,
+  RenderRefusedError,
+  assertRenderable,
+} from '../../src/renderer/index.ts';
 
 function golden(): { model: CircuitLogicalModel; circuit: Circuit } {
   const parsed = parseSequence('A+B+A-B-');
@@ -102,6 +107,24 @@ test('renderer REFUSES an invalid circuit (throws RenderRefusedError)', () => {
   };
   assert.throws(() => renderPneumatic(broken, { model }), RenderRefusedError);
   assert.throws(() => renderLadder(broken, model), RenderRefusedError);
+});
+
+test('a MALFORMED circuit is refused via the validator (no fabricated code) - issue 6', () => {
+  // A structurally malformed circuit (no component array) must be refused, and
+  // the refusal reason must come from validateCircuit itself (a real
+  // LOGICAL_CONFLICT issue), NOT a code hand-built by the guard.
+  const malformed = { domain: 'pneumatic', method: 'intuitive' } as unknown as Circuit;
+  try {
+    assertRenderable(malformed);
+    assert.fail('should have refused a malformed circuit');
+  } catch (e) {
+    assert.ok(e instanceof RenderRefusedError);
+    assert.ok(e.issues.length > 0, 'issues attached');
+    assert.ok(
+      e.issues.some((i) => i.code === 'VAL_LOGICAL_CONFLICT'),
+      'malformed circuit reported as LOGICAL_CONFLICT by the validator',
+    );
+  }
 });
 
 test('RenderRefusedError carries the validation issue codes', () => {

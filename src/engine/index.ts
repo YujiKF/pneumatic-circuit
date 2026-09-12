@@ -4,6 +4,7 @@ export { solveStepByStep } from './step-by-step/index.ts';
 export type { StepByStepOptions } from './step-by-step/index.ts';
 export {
   divideIntoGroups,
+  cascadeExecutionOrder,
   solveCascade,
   toCascadeCircuit,
 } from './cascade/index.ts';

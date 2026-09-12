@@ -25,14 +25,16 @@ import { solveStepByStep } from '../../src/engine/index.ts';
 import type { CircuitLogicalModel, Rung } from '../../src/engine/index.ts';
 import { toCircuit } from '../../src/engine/index.ts';
 import { validateCircuit, ValidationCode } from '../../src/validator/index.ts';
-import { initialSimState } from '../../src/simulator/index.ts';
-import { relayOn } from '../../src/simulator/index.ts';
+import { initialSimState, runCycle, settleLadder } from '../../src/simulator/index.ts';
+import { relayOn, sensorActive } from '../../src/simulator/index.ts';
 
-// Import internal helpers to drive a controlled, event-by-event simulation.
-// We re-implement a tiny stepping harness on top of the public runCycle by
-// snapshotting; but to observe the K1-holds-after-sensor-opens property we
-// need finer control, so we use the exported building blocks + a local
-// ladder evaluation identical to the simulator's.
+// The POSITIVE proof (K1 holds after its triggering sensor opens) runs against
+// the PRODUCTION simulator `runCycle` so a regression in `settleLadder` is
+// caught (review issue 1). The MUTATION proof (removing the seal drops K1) uses
+// a small local ladder evaluator so we can drive the mutated model through the
+// exact same START-pulse-then-sensor-opens scenario without wiring a mutated
+// model through the whole physical engine; the positive half of that same test
+// is ALSO checked through runCycle, so the two evaluators are pinned together.
 
 function solveModel(): CircuitLogicalModel {
   const parsed = parseSequence('A+B+A-B-');
@@ -120,13 +122,46 @@ function k1HoldsAfterSensorOpens(model: CircuitLogicalModel): boolean {
   return relayOn(state, 'K1');
 }
 
-test('seal: K1 stays ON after START is released and the home sensor opens', () => {
+test('seal (local evaluator): K1 stays ON after START is released and the home sensor opens', () => {
   const model = solveModel();
   assert.equal(
     k1HoldsAfterSensorOpens(model),
     true,
     'K1 must latch via its seal contact once set',
   );
+});
+
+test('seal (REAL simulator): K1 holds after START released and 1S1 opens, via settleLadder', () => {
+  // Drive the PRODUCTION engine directly (review issue 1). Steps:
+  //   1. runCycle with maxPhysicalEvents: 0 presses START, then releases it
+  //      (momentary pulse) and re-settles through the real `settleLadder`. At
+  //      this point K1 is held ONLY by its seal (START is open) and no cylinder
+  //      has moved yet, so 1S1 is still ACTIVE.
+  //   2. Simulate cylinder A physically leaving home: open its home sensor 1S1
+  //      (the transient the seal must survive), then re-settle the ladder with
+  //      the SAME production `settleLadder`.
+  //   3. K1 must still be ON. A regression in settleLadder (dropped fixed-point
+  //      iteration, perturbed latching) that let the seal stop holding would
+  //      make K1 fall to OFF here and fail the test.
+  const model = solveModel();
+  const { state } = runCycle(model, { pulseStart: true, maxPhysicalEvents: 0 });
+
+  assert.equal(state.startPressed, false, 'START was released (momentary push)');
+  assert.equal(relayOn(state, 'K1'), true, 'K1 latched by its seal after START release');
+  assert.equal(sensorActive(state, '1S1'), true, 'A has not moved yet: 1S1 still active');
+
+  // Cylinder A leaves home: 1S1 opens. K2 cannot set yet (it needs 1S2, which A
+  // has NOT reached), so K1 is proven to hold on its seal alone, not because a
+  // later relay is masking the drop.
+  state.sensors.set('1S1', 'INACTIVE');
+  settleLadder(model, state, []);
+
+  assert.equal(
+    relayOn(state, 'K1'),
+    true,
+    'K1 must stay ON via its seal after its triggering sensor opens (real settleLadder)',
+  );
+  assert.equal(relayOn(state, 'K2'), false, 'K2 not yet reached (1S2 not active)');
 });
 
 test('seal MUTATION: removing the seal makes K1 drop -> the test catches the bug', () => {

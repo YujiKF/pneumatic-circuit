@@ -76,6 +76,23 @@ export function validateCircuit(
 ): ValidationReport {
   const issues: ValidationIssue[] = [];
 
+  // A missing or structurally malformed circuit (no component array) cannot be
+  // validated or drawn. Report it as a LOGICAL_CONFLICT through the normal
+  // issue path so every refusal reason flows from the validator (no fabricated
+  // codes elsewhere).
+  if (
+    circuit === null ||
+    circuit === undefined ||
+    !Array.isArray(circuit.components) ||
+    !Array.isArray(circuit.connections)
+  ) {
+    issues.push({
+      code: ValidationCode.LOGICAL_CONFLICT,
+      message: 'Circuit is missing or malformed (no component/connection arrays).',
+    });
+    return { ok: false, issues };
+  }
+
   const byId = new Map<string, Circuit['components'][number]>();
   // DUPLICATE_COMPONENT
   for (const c of circuit.components) {
@@ -310,7 +327,12 @@ function validateLogical(
     // enables the next step; the final step must be reachable/complete.
     if (i < n - 1) {
       const next = model.steps[i + 1];
-      if (next?.enableSensorId === undefined && !next?.enabledByStart) {
+      const nextGated =
+        next !== undefined &&
+        (next.enabledByStart ||
+          next.enableSensorId !== undefined ||
+          (next.enableSensorIds !== undefined && next.enableSensorIds.length > 0));
+      if (!nextGated) {
         issues.push({
           code: ValidationCode.STEP_WITHOUT_EXIT,
           message: `Step ${step.relayId} has no exit condition: the next step is not gated by any sensor.`,
@@ -319,18 +341,24 @@ function validateLogical(
       }
     }
 
-    // IMPOSSIBLE_TRANSITION: a non-first step's enabling sensor must be one
-    // that some previous movement actually produces (else it can never trip).
-    if (!step.enabledByStart && step.enableSensorId !== undefined) {
-      const producible = model.steps
-        .slice(0, i)
-        .some((s) => s.movements.some((mv) => mv.arrivalSensorId === step.enableSensorId));
-      if (!producible) {
-        issues.push({
-          code: ValidationCode.IMPOSSIBLE_TRANSITION,
-          message: `Step ${step.relayId} waits on sensor "${step.enableSensorId}" that no earlier movement can trip.`,
-          subject: step.relayId,
-        });
+    // IMPOSSIBLE_TRANSITION: EVERY enabling sensor of a non-first step must be
+    // one that some previous movement actually produces (else it can never
+    // trip). For a simultaneous predecessor this checks all its members.
+    if (!step.enabledByStart) {
+      const enableSensors =
+        step.enableSensorIds ??
+        (step.enableSensorId !== undefined ? [step.enableSensorId] : []);
+      for (const sensorId of enableSensors) {
+        const producible = model.steps
+          .slice(0, i)
+          .some((s) => s.movements.some((mv) => mv.arrivalSensorId === sensorId));
+        if (!producible) {
+          issues.push({
+            code: ValidationCode.IMPOSSIBLE_TRANSITION,
+            message: `Step ${step.relayId} waits on sensor "${sensorId}" that no earlier movement can trip.`,
+            subject: step.relayId,
+          });
+        }
       }
     }
   }

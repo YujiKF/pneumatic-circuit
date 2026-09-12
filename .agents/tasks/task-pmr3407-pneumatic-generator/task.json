@@ -1,7 +1,14 @@
 {
   "task_id": "task-pmr3407-pneumatic-generator",
   "task_description": "Build the PMR3407 Pneumatic Circuit Generator: a deterministic (non-LLM-at-runtime) generator of pneumatic and electropneumatic circuits based on the PMR3407 course methods. Deliver docs/PMR3407_RULES.md, a full Kiro Spec (requirements/design/tasks), a zero-dependency TypeScript core with clean pipeline separation (parser -> sequence model -> method solver -> logical circuit -> validator -> layout -> SVG renderer -> simulator), golden + property-based tests, and prioritize the FIRST MILESTONE (Electropneumatic + Step-by-step) end to end with tests green. Cascade and the presentation/UI layer follow. Network is INTEGRATIONS_ONLY so the core has no npm dependencies (Node v22 native TS + node --test); React/Vite UI is best-effort and documented.",
-  "status": "pending",
+  "status": "in_progress",
   "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Core `tsc --noEmit -p tsconfig.json` passes and `node --test` passes 99/99 (was 87; +12 from the v1 review remediation). Test quality verified by inspection: golden tests solve real sequences through the actual parser+step-by-step/cascade solvers and assert the produced logical model (step/relay counts, per-step solenoid+sensor mapping, timer relay, seal topology, arming contact, cycle-mode). V1 REVIEW REMEDIATION (2026-09-12-233859-review.md, all 6 issues addressed): (1/blocking) the seal proof now drives the PRODUCTION simulator (runCycle + exported settleLadder) so a settleLadder regression is caught, not only a local evaluator; (2) continuous cycle mode is now simulated (cycle-mode.simulation.test.ts) and a real arming bug was fixed (continuous wrap moved to a PARALLEL branch so the first press starts and the last line re-arms the first, first-relay reset drops the last); (3) cascade last-into-first merge order is pinned by cascadeExecutionOrder + mergedTailCount tests proving the wrap preserves original movement order; (4) timer delay kept as a documented deferral (no grammar delay token) and pinned by timer-delay.test.ts; (5) a step after a simultaneous group now gates on ALL member arrival sensors (enableSensorIds) with a real-settleLadder test; (6) the render guard's malformed-circuit refusal now routes through validateCircuit (real LOGICAL_CONFLICT) instead of a fabricated code. Validator has one unit test per error class; cascade group-division asserts group contents + Nm independently of drawing; renderer tests assert SVG-string structure and the refusal path. No Dockerfile exists so docker_build is skipped. React/Vite UI is uninstallable under INTEGRATIONS_ONLY (npm registry 403) and is delivered as best-effort source excluded from the core typecheck, documented in README."
+  }
 }

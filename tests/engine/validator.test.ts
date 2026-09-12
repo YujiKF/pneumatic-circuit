@@ -148,9 +148,13 @@ function baseModel(): CircuitLogicalModel {
 
 test('detects IMPOSSIBLE_TRANSITION (step waits on a sensor never produced)', () => {
   const model = baseModel();
-  // Corrupt K3 so it waits on a sensor that no earlier movement trips.
+  // Corrupt K3 so it waits on a sensor that no earlier movement trips. The
+  // validator gates on the full `enableSensorIds` set (issue 5), so corrupt
+  // both the display id and the gating list.
   const steps = model.steps.map((s) =>
-    s.index === 2 ? { ...s, enableSensorId: '9S9', enabledByStart: false } : s,
+    s.index === 2
+      ? { ...s, enableSensorId: '9S9', enableSensorIds: ['9S9'], enabledByStart: false }
+      : s,
   );
   const broken: CircuitLogicalModel = { ...model, steps };
   const report = validateCircuit(toEmpty(), broken);
@@ -159,11 +163,13 @@ test('detects IMPOSSIBLE_TRANSITION (step waits on a sensor never produced)', ()
 
 test('detects STEP_WITHOUT_EXIT (a non-final step has no exit condition)', () => {
   const model = baseModel();
-  // Remove K2's enabling condition entirely: K1 (step 0) then has no exit.
+  // Remove K2's enabling condition entirely (both the display id and the gating
+  // list): K1 (step 0) then has no exit.
   const steps = model.steps.map((s) => {
     if (s.index === 1) {
-      const { enableSensorId, ...rest } = s;
+      const { enableSensorId, enableSensorIds, ...rest } = s;
       void enableSensorId;
+      void enableSensorIds;
       return { ...rest, enabledByStart: false } as typeof s;
     }
     return s;

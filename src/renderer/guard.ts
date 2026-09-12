@@ -33,12 +33,9 @@ export class RenderRefusedError extends Error {
  * renderable. Returns nothing on success.
  */
 export function assertRenderable(circuit: Circuit, model?: CircuitLogicalModel): void {
-  // Also refuse a structurally empty circuit (nothing validated/laid out).
-  if (circuit === null || circuit === undefined || !Array.isArray(circuit.components)) {
-    throw new RenderRefusedError([
-      { code: 'VAL_LOGICAL_CONFLICT', message: 'Circuit is missing or malformed.' } as ValidationIssue,
-    ]);
-  }
+  // Route EVERY refusal reason through the validator (single validation path).
+  // A missing/malformed circuit is handled inside validateCircuit, which emits
+  // a real LOGICAL_CONFLICT issue rather than the guard fabricating a code.
   const report = validateCircuit(circuit, model);
   if (!report.ok) {
     throw new RenderRefusedError(report.issues);

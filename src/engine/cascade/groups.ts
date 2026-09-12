@@ -41,6 +41,15 @@ export interface DividedGroup {
   readonly stepIndices: readonly number[];
   /** All movements of the group's steps, flattened in execution order. */
   readonly movements: readonly Movement[];
+  /**
+   * Number of trailing movements in THIS group that were merged in from the
+   * original LAST group by the last-into-first wrap optimization. 0 for every
+   * group that was not the merge target. These movements execute at the END of
+   * the cycle (when cascade control wraps back to this line), NOT at its start,
+   * which is what preserves the original movement order (see
+   * {@link cascadeExecutionOrder} and RULES.md §A3).
+   */
+  readonly mergedTailCount: number;
 }
 
 /** Result of dividing a sequence into cascade groups. */
@@ -144,6 +153,9 @@ export function divideIntoGroups(
   // --- last-into-first merge optimization (RULES.md §7.4 / §A3) ---
   let merged = false;
   let finalGroups = rawGroups;
+  // How many trailing movements of the FIRST group came from the wrapped-in
+  // last group (0 unless a merge happened). Used to reconstruct execution order.
+  let mergedTailMovements = 0;
   if (mergeLastIntoFirst && rawGroups.length >= 2) {
     const first = rawGroups[0] as number[];
     const last = rawGroups[rawGroups.length - 1] as number[];
@@ -153,6 +165,9 @@ export function divideIntoGroups(
       const mergedFirst = [...first, ...last];
       finalGroups = [mergedFirst, ...rawGroups.slice(1, rawGroups.length - 1)];
       merged = true;
+      mergedTailMovements = flattenMovements(
+        last.map((si) => steps[si] as Step),
+      ).length;
     }
   }
 
@@ -162,6 +177,8 @@ export function divideIntoGroups(
       number: idx + 1,
       stepIndices,
       movements: flattenMovements(groupSteps),
+      // Only the first group (idx 0) can carry a merged-in tail.
+      mergedTailCount: idx === 0 ? mergedTailMovements : 0,
     };
   });
 
@@ -173,6 +190,40 @@ export function divideIntoGroups(
     numberOfMemories: Math.max(0, numberOfGroups - 1),
     merged,
   };
+}
+
+/**
+ * Reconstruct the PHYSICAL execution order of movements from a division,
+ * accounting for the last-into-first wrap.
+ *
+ * In a cascade the first group's line is the DEFAULT live line at rest; the
+ * cycle starts on it and, at the end, control WRAPS back to it. When the last
+ * group is merged into the first, its movements are appended to the first
+ * group's movement list but they physically run at the END of the cycle (when
+ * control returns to line 1), not at the start. So the true execution order is:
+ *
+ *   [first group's own (non-merged) movements]
+ *     ++ [group 2 .. group N movements, in order]
+ *     ++ [first group's merged-in tail movements]
+ *
+ * Without a merge this is just the groups concatenated in order, which equals
+ * the original sequence. This function lets a test prove the merge PRESERVES
+ * the original movement order (review issue 3) rather than reordering it.
+ */
+export function cascadeExecutionOrder(division: GroupDivision): Movement[] {
+  const groups = division.groups;
+  if (groups.length === 0) return [];
+  const first = groups[0] as DividedGroup;
+  const tail = first.mergedTailCount;
+  const firstOwn = tail > 0 ? first.movements.slice(0, first.movements.length - tail) : first.movements.slice();
+  const firstMergedTail = tail > 0 ? first.movements.slice(first.movements.length - tail) : [];
+
+  const middleAndLast: Movement[] = [];
+  for (let g = 1; g < groups.length; g++) {
+    for (const mv of (groups[g] as DividedGroup).movements) middleAndLast.push(mv);
+  }
+
+  return [...firstOwn, ...middleAndLast, ...firstMergedTail];
 }
 
 /**

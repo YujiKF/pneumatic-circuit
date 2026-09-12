@@ -45,8 +45,23 @@ export interface PlanStep {
    * The sensor id whose activation ENABLES this step (the end-of-course sensor
    * tripped by the PREVIOUS step's movement). For the first step this is the
    * START button id instead of a sensor. See `enabledByStart`.
+   *
+   * When the previous step is a SIMULTANEOUS group with several movements, this
+   * is the arrival sensor of the LAST-listed movement (kept for display /
+   * explanation). The FULL set of sensors this step waits on is
+   * `enableSensorIds`; the activation rung gates on ALL of them (rule 2).
    */
   readonly enableSensorId?: string;
+  /**
+   * ALL end-of-course sensors that must be active to enable this step: the
+   * arrival sensors of EVERY movement of the previous step. For an ordinary
+   * (single-movement) predecessor this has exactly one entry equal to
+   * `enableSensorId`. For a simultaneous parenthesized predecessor it has one
+   * entry per member, so the transition waits on ALL members arriving, not just
+   * the last-listed one (review issue 5 / RULES §A6). Empty/undefined for the
+   * first step (enabled by START).
+   */
+  readonly enableSensorIds?: readonly string[];
   /** True for the first step: enabled by the START button, not a sensor. */
   readonly enabledByStart: boolean;
 }
