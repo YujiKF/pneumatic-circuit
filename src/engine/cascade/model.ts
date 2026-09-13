@@ -22,6 +22,7 @@
 
 import type { ActuatorId, Direction, SolverMethod } from '../../domain/index.ts';
 import type { CycleMode, PneumaticModel } from '../model.ts';
+import type { GroupDivision } from './groups.ts';
 
 /** A single movement inside a cascade group, with its pneumatic ids. */
 export interface CascadeMovement {
@@ -42,6 +43,15 @@ export interface CascadeMovement {
   readonly arrivalSensorId: string;
 }
 
+/** A transition from one group to the next via a memory valve. */
+export interface CascadeTransition {
+  readonly fromGroup: number;
+  readonly toGroup: number;
+  readonly memoryId: string;
+  /** Arrival sensor(s) from all members of the previous group's final step. */
+  readonly conditionSensorIds: readonly string[];
+}
+
 /**
  * A cascade group: its steps' movements, the pressure line feeding it, and the
  * sensor whose activation HANDS control to this group (the last event of the
@@ -55,6 +65,8 @@ export interface CascadeGroupModel {
   readonly lineId: string;
   /** Ordered movements executed while this group's line is live. */
   readonly movements: readonly CascadeMovement[];
+  /** Step indices from the sequence belonging to this group. */
+  readonly stepIndices?: readonly number[];
   /**
    * Sensor whose activation transfers pressure to THIS group's line (tripped
    * by the last movement of the previous group). Undefined for the first
@@ -91,6 +103,7 @@ export interface CascadeLogicalModel {
   readonly actuators: readonly ActuatorId[];
   readonly groups: readonly CascadeGroupModel[];
   readonly memories: readonly CascadeMemoryValve[];
+  readonly transitions: readonly CascadeTransition[];
   readonly pneumatic: PneumaticModel;
   /** Id of the start button/valve, e.g. "E". */
   readonly startButtonId: string;
@@ -100,6 +113,8 @@ export interface CascadeLogicalModel {
   readonly numberOfMemories: number;
   /** Whether the last-into-first merge optimization was applied. */
   readonly merged: boolean;
+  /** Underlying group division from the solver. */
+  readonly division?: GroupDivision;
   /** All distinct sensor ids referenced anywhere in the model. */
   readonly sensorIds: readonly string[];
 }

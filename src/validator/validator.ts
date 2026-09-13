@@ -25,6 +25,8 @@
 
 import type { Circuit, Connection } from '../domain/index.ts';
 import type { CircuitLogicalModel } from '../engine/model.ts';
+import type { CascadeLogicalModel } from '../engine/cascade/model.ts';
+import { validateCascadeModel } from './cascade.ts';
 
 export const ValidationCode = {
   NONEXISTENT_COMPONENT: 'VAL_NONEXISTENT_COMPONENT',
@@ -70,11 +72,11 @@ function isImplicitElectricNode(id: string): boolean {
 /**
  * Validate a circuit. If `model` is provided, additional logical checks
  * (seal presence, step exit conditions, transition feasibility, solenoid
- * conflicts) are performed.
+ * conflicts, cascade invariants) are performed.
  */
 export function validateCircuit(
   circuit: Circuit,
-  model?: CircuitLogicalModel,
+  model?: CircuitLogicalModel | CascadeLogicalModel,
 ): ValidationReport {
   const issues: ValidationIssue[] = [];
 
@@ -113,7 +115,11 @@ export function validateCircuit(
   validateReferences(circuit, byId, issues);
 
   if (model !== undefined) {
-    validateLogical(model, issues);
+    if ('steps' in model) {
+      validateLogical(model as CircuitLogicalModel, issues);
+    } else if (model.method === 'cascade' || 'memories' in model) {
+      validateCascadeModel(model as CascadeLogicalModel, issues);
+    }
   }
 
   return { ok: issues.length === 0, issues };

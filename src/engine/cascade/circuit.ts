@@ -228,14 +228,9 @@ function ensureBothPilots(
 
 /** Project the group models to the domain {@link CascadeGroup} aggregate. */
 function toCascadeGroups(model: CascadeLogicalModel): CascadeGroup[] {
-  // stepIndices are not carried in the group model movements; recompute a
-  // simple 1-based movement index range is not meaningful, so expose the group
-  // number + line id with an empty stepIndices (the logical model carries the
-  // authoritative movement lists). The domain CascadeGroup is used by the
-  // renderer for labels; contents are asserted from the logical model in tests.
   return model.groups.map((g) => ({
     number: g.number,
-    stepIndices: [],
+    stepIndices: g.stepIndices ? [...g.stepIndices] : [],
     lineId: g.lineId,
   }));
 }

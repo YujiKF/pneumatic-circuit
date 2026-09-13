@@ -38,6 +38,17 @@ test('generate() supports the cascade method (pneumatic only)', () => {
   assert.ok(res.pneumaticSvg?.includes('<svg'), 'pneumatic SVG present');
   // Cascade has no ladder.
   assert.equal(res.ladderSvg, undefined);
+  // Funcionamento has chronological explanation
+  assert.ok((res.funcionamento?.length ?? 0) > 0, 'has chronological explanation');
+  assert.ok(res.funcionamento?.some((l) => l.includes('pressurizing line L1')));
+  // Steps summarized
+  assert.equal(res.steps?.length, 4, '4 steps summarized');
+  assert.equal(res.steps?.[0]?.movement, 'A+');
+  assert.equal(res.steps?.[0]?.relayId, 'L1');
+  // Components present
+  assert.ok((res.components?.length ?? 0) > 0, 'has components');
+  // Verification passed
+  assert.ok(res.verification?.ok, 'verification ok');
 });
 
 test('generate() returns full result for A+B+B-A-', () => {

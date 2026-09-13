@@ -11,10 +11,12 @@ export { solveCascade } from './solver.ts';
 export type { CascadeOptions } from './solver.ts';
 
 export { toCascadeCircuit } from './circuit.ts';
+export { explainCascade } from './explanation.ts';
 
 export type {
   CascadeLogicalModel,
   CascadeGroupModel,
   CascadeMemoryValve,
   CascadeMovement,
+  CascadeTransition,
 } from './model.ts';

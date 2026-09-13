@@ -16,6 +16,7 @@
 
 import type { Circuit, CircuitComponent } from '../../domain/index.ts';
 import type { CircuitLogicalModel } from '../../engine/model.ts';
+import type { CascadeLogicalModel } from '../../engine/cascade/model.ts';
 import { layoutCircuit } from '../../layout/index.ts';
 import type { LayoutResult, PlacedComponent } from '../../layout/index.ts';
 import { assertRenderable } from '../guard.ts';
@@ -31,7 +32,7 @@ import {
 
 export interface PneumaticRenderOptions {
   /** Optional logical model enabling deeper validation before rendering. */
-  readonly model?: CircuitLogicalModel;
+  readonly model?: CircuitLogicalModel | CascadeLogicalModel;
 }
 
 /**
@@ -54,10 +55,32 @@ export function renderPneumatic(circuit: Circuit, opts: PneumaticRenderOptions =
   }
 
   const pipes = renderPipes(layout);
+  const buses = renderBuses(layout);
 
   const body =
-    group('pneumatic-wires', {}, ...pipes) + group('pneumatic-symbols', {}, ...symbols);
+    group('pneumatic-wires', {}, ...pipes) +
+    (buses.length > 0 ? group('pneumatic-buses', {}, ...buses) : '') +
+    group('pneumatic-symbols', {}, ...symbols);
   return svgRoot(layout.width, layout.height, 'pneumatic-diagram', body);
+}
+
+/** Render group pressure lines (buses) for cascade pneumatic diagrams. */
+function renderBuses(layout: LayoutResult): string[] {
+  if (!layout.buses || layout.buses.length === 0) return [];
+  const lines: string[] = [];
+  const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+
+  for (const bus of layout.buses) {
+    const groupLabel = roman[bus.groupNumber - 1] ?? String(bus.groupNumber);
+    lines.push(
+      `<g class="pressure-bus" data-bus="${bus.id}">` +
+        `<line x1="${bus.x1}" y1="${bus.y}" x2="${bus.x2}" y2="${bus.y}" stroke="#1a56db" stroke-width="2.5" class="pressure-line pressure-line-${bus.id}"/>` +
+        `<text x="${bus.x1 - 8}" y="${bus.y + 4}" text-anchor="end" font-size="11" font-weight="bold" fill="#1a56db" class="bus-label">${bus.label}</text>` +
+        `<text x="${bus.x2 + 8}" y="${bus.y + 4}" text-anchor="start" font-size="11" fill="#475569" class="group-label">Grupo ${groupLabel}</text>` +
+      `</g>`,
+    );
+  }
+  return lines;
 }
 
 /** Map one logical component to the correct pneumatic symbol. */

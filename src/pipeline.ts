@@ -12,8 +12,14 @@
  */
 
 import { parseSequence } from './parser/index.ts';
-import { solveStepByStep, toCircuit, solveCascade, toCascadeCircuit } from './engine/index.ts';
-import type { CircuitLogicalModel } from './engine/index.ts';
+import {
+  solveStepByStep,
+  toCircuit,
+  solveCascade,
+  toCascadeCircuit,
+  explainCascade,
+} from './engine/index.ts';
+import type { CircuitLogicalModel, CascadeLogicalModel } from './engine/index.ts';
 import type { Circuit } from './domain/index.ts';
 import { validateCircuit } from './validator/index.ts';
 import type { ValidationReport } from './validator/index.ts';
@@ -87,10 +93,12 @@ export function generate(req: GenerateRequest): GenerateResult {
   // electropneumatic model; cascade produces the pneumatic model. The
   // "intuitive" method reuses the step-by-step solver as a starting point.
   let model: CircuitLogicalModel | undefined;
+  let cascadeModel: CascadeLogicalModel | undefined;
   let circuit: Circuit;
   try {
     if (req.method === 'cascade') {
       const cascade = solveCascade(parsed.value, { cycleMode: req.mode });
+      cascadeModel = cascade;
       circuit = toCascadeCircuit(cascade);
     } else {
       model = solveStepByStep(parsed.value, { cycleMode: req.mode });
@@ -100,7 +108,7 @@ export function generate(req: GenerateRequest): GenerateResult {
     return { ok: false, error: `Falha ao resolver o circuito: ${describe(e)}` };
   }
 
-  const verification = validateCircuit(circuit, model);
+  const verification = validateCircuit(circuit, cascadeModel ?? model);
   if (!verification.ok) {
     return {
       ok: false,
@@ -114,13 +122,19 @@ export function generate(req: GenerateRequest): GenerateResult {
   let funcionamento: readonly string[] | undefined;
   let steps: readonly StepSummary[] | undefined;
   try {
-    pneumaticSvg = renderPneumatic(circuit, model ? { model } : {});
+    pneumaticSvg = renderPneumatic(
+      circuit,
+      cascadeModel ? { model: cascadeModel } : (model ? { model } : {}),
+    );
     if (model !== undefined) {
       ladderSvg = renderLadder(circuit, model);
       funcionamento = explain(model);
       steps = summarizeSteps(model);
       // Confirm the model actually simulates one full cycle.
       runCycle(model, { pulseStart: true });
+    } else if (cascadeModel !== undefined) {
+      funcionamento = explainCascade(cascadeModel);
+      steps = summarizeCascadeSteps(cascadeModel);
     } else {
       funcionamento = circuit.explanation;
     }
@@ -151,6 +165,23 @@ function summarizeSteps(model: CircuitLogicalModel): StepSummary[] {
       hasTimer: s.hasTimer,
     };
   });
+}
+
+function summarizeCascadeSteps(cascade: CascadeLogicalModel): StepSummary[] {
+  const steps: StepSummary[] = [];
+  for (const group of cascade.groups) {
+    for (const mv of group.movements) {
+      steps.push({
+        relayId: group.lineId,
+        movement: `${mv.actuator}${mv.direction}`,
+        solenoidId: `${mv.mainValveId}:${mv.pilotPort}`,
+        arrivalSensorId: mv.arrivalSensorId,
+        enabledBy: mv.startSensorId ?? group.activationSensorId ?? cascade.startButtonId,
+        hasTimer: false,
+      });
+    }
+  }
+  return steps;
 }
 
 function summarizeComponents(circuit: Circuit): ComponentSummary[] {

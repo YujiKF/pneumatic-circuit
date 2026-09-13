@@ -140,6 +140,84 @@ test("golden cascade A+B-B+T(A-B-)B+: 4 groups, Nm=3, three memory valves", () =
   assert.equal(model.groups[2]!.activationSensorId, '2S2');
   assert.equal(model.groups[3]!.activationSensorId, '2S1');
 
+  // Milestone-2 transition gating: G3 -> G4 depends on BOTH arrival sensors (1S1 AND 2S1)
+  assert.equal(model.transitions.length, 3);
+  assert.deepEqual(model.transitions[0]!.conditionSensorIds, ['2S1']);
+  assert.deepEqual(model.transitions[1]!.conditionSensorIds, ['2S2']);
+  assert.deepEqual([...model.transitions[2]!.conditionSensorIds].sort(), ['1S1', '2S1']);
+
+  assertClean(model);
+});
+
+// ---------------------------------------------------------------------------
+// Golden G1: A+B+A-B- (user's example; direct, simple 2-group division)
+// ---------------------------------------------------------------------------
+test("golden cascade G1: A+B+A-B- divides into [A+ B+] [A- B-], Nm=1", () => {
+  const model = solve('A+B+A-B-');
+  assert.deepEqual(groupShape(model), ['A+B+', 'A-B-']);
+  assert.equal(model.numberOfGroups, 2);
+  assert.equal(model.numberOfMemories, 1);
+  assert.equal(model.merged, false);
+
+  // G2 activated by last event of G1 (B+ -> 2S2)
+  assert.equal(model.groups[1]!.activationSensorId, '2S2');
+  assert.equal(model.memories[0]!.setSensorId, '2S2');
+  assert.deepEqual(model.transitions[0]!.conditionSensorIds, ['2S2']);
+
+  // Check stepIndices are propagated to domain CascadeGroup
+  const circuit = toCascadeCircuit(model);
+  assert.ok(circuit.groups);
+  assert.equal(circuit.groups.length, 2);
+  assert.deepEqual(circuit.groups[0]!.stepIndices, [0, 1]);
+  assert.deepEqual(circuit.groups[1]!.stepIndices, [2, 3]);
+
+  // Circuit-level component assertions: 2 cylinders, 2 main valves, 1 memory valve (0.1), supply E, 4 sensors
+  const cylinders = circuit.components.filter((c) => c.kind === 'cylinder');
+  const mainValves = circuit.components.filter((c) => c.kind === 'directional-valve' && c.id.endsWith('.1') && c.id !== '0.1');
+  const memValves = circuit.components.filter((c) => c.kind === 'directional-valve' && c.id === '0.1');
+  const sensors = circuit.components.filter((c) => c.kind === 'sensor');
+  assert.equal(cylinders.length, 2);
+  assert.equal(mainValves.length, 2);
+  assert.equal(memValves.length, 1);
+  assert.equal(sensors.length, 4);
+
+  assertClean(model);
+});
+
+// ---------------------------------------------------------------------------
+// Golden G5: A+B+D-A-B-C+C-D+ (deck-4 p.65; 3 groups, conservative no-merge)
+// ---------------------------------------------------------------------------
+test("golden cascade G5: A+B+D-A-B-C+C-D+ pre-merge 3 groups, no merge on D wrap conflict", () => {
+  // Pre-merge division: [A+ B+ D-] [A- B- C+] [C- D+]
+  const model = solve('A+B+D-A-B-C+C-D+');
+  assert.deepEqual(groupShape(model), ['A+B+D-', 'A-B-C+', 'C-D+']);
+  assert.equal(model.numberOfGroups, 3);
+  assert.equal(model.numberOfMemories, 2);
+
+  // The deck manual solution labels this "1 2 1", but under the conservative
+  // deterministic rule (RULES §A3), the union of first [A+ B+ D-] and last
+  // [C- D+] conflicts on D (D- and D+) -> algorithm does NOT merge.
+  assert.equal(model.merged, false);
+
+  // Transitions:
+  // G1 -> G2: activated by D- arrival (4S1)
+  // G2 -> G3: activated by C+ arrival (3S2)
+  assert.equal(model.groups[1]!.activationSensorId, '4S1');
+  assert.equal(model.groups[2]!.activationSensorId, '3S2');
+  assert.deepEqual(model.transitions[0]!.conditionSensorIds, ['4S1']);
+  assert.deepEqual(model.transitions[1]!.conditionSensorIds, ['3S2']);
+
+  // Circuit-level component assertions: 4 cylinders, 4 main valves, 2 memory valves (0.1, 0.2), 8 sensors
+  const circuit = toCascadeCircuit(model);
+  const cylinders = circuit.components.filter((c) => c.kind === 'cylinder');
+  const mainValves = circuit.components.filter((c) => c.kind === 'directional-valve' && c.actuator !== undefined);
+  const memValves = circuit.components.filter((c) => c.kind === 'directional-valve' && /^0\.\d+$/.test(c.id));
+  const sensors = circuit.components.filter((c) => c.kind === 'sensor');
+  assert.equal(cylinders.length, 4);
+  assert.equal(mainValves.length, 4);
+  assert.equal(memValves.length, 2);
+  assert.equal(sensors.length, 8);
+
   assertClean(model);
 });
 

@@ -40,6 +40,7 @@ import type {
   CascadeLogicalModel,
   CascadeMemoryValve,
   CascadeMovement,
+  CascadeTransition,
 } from './model.ts';
 
 export interface CascadeOptions {
@@ -90,6 +91,7 @@ export function solveCascade(
 
   const groups = buildGroups(division);
   const memories = buildMemories(division, groups);
+  const transitions = buildTransitions(sequence, division, memories);
   const pneumatic = buildPneumatic(sequence.actuators);
   const sensorIds = collectSensorIds(groups, memories);
 
@@ -100,11 +102,13 @@ export function solveCascade(
     actuators: sequence.actuators,
     groups,
     memories,
+    transitions,
     pneumatic,
     startButtonId,
     numberOfGroups: division.numberOfGroups,
     numberOfMemories: division.numberOfMemories,
     merged: division.merged,
+    division,
     sensorIds,
   };
 }
@@ -136,11 +140,56 @@ function buildGroups(division: GroupDivision): CascadeGroupModel[] {
       number: group.number,
       lineId: lineId(group.number),
       movements,
+      stepIndices: group.stepIndices,
       ...(activationSensorId !== undefined ? { activationSensorId } : {}),
     });
   }
 
   return result;
+}
+
+/**
+ * Build the transitions view: for every transition from group k to group k+1,
+ * list the memory id and the arrival sensor(s) of all members of the previous
+ * group's final event (including simultaneous members).
+ */
+function buildTransitions(
+  sequence: SequenceModel,
+  division: GroupDivision,
+  memories: readonly CascadeMemoryValve[],
+): CascadeTransition[] {
+  const transitions: CascadeTransition[] = [];
+  const nm = division.numberOfMemories;
+
+  for (let k = 1; k <= nm; k++) {
+    const fromGroup = k;
+    const toGroup = k + 1;
+    const memory = memories[k - 1];
+    const prevGroup = division.groups[k - 1];
+
+    const conditionSensorIds: string[] = [];
+    if (prevGroup && prevGroup.stepIndices.length > 0) {
+      const lastStepIndex = prevGroup.stepIndices[prevGroup.stepIndices.length - 1] as number;
+      const step = sequence.steps[lastStepIndex];
+      if (step) {
+        for (const mv of step.movements) {
+          conditionSensorIds.push(sensorIdForArrival(mv.actuator, mv.direction));
+        }
+      }
+    }
+    if (conditionSensorIds.length === 0 && memory) {
+      conditionSensorIds.push(memory.setSensorId);
+    }
+
+    transitions.push({
+      fromGroup,
+      toGroup,
+      memoryId: memory ? memory.id : memoryId(k),
+      conditionSensorIds,
+    });
+  }
+
+  return transitions;
 }
 
 /** Build a group's cascade movements with intra-group gating sensors. */

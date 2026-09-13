@@ -7,6 +7,7 @@ export {
   cascadeExecutionOrder,
   solveCascade,
   toCascadeCircuit,
+  explainCascade,
 } from './cascade/index.ts';
 export type {
   DividedGroup,
@@ -17,6 +18,7 @@ export type {
   CascadeGroupModel,
   CascadeMemoryValve,
   CascadeMovement,
+  CascadeTransition,
 } from './cascade/index.ts';
 export { toCircuit } from './circuit.ts';
 export * as naming from './naming.ts';

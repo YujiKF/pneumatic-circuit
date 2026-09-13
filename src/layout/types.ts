@@ -61,6 +61,16 @@ export interface RoutedConnection {
   readonly points: readonly Point[];
 }
 
+/** A pressure line bus (in cascade pneumatic circuits). */
+export interface PlacedBus {
+  readonly id: string;
+  readonly label: string;
+  readonly groupNumber: number;
+  readonly y: number;
+  readonly x1: number;
+  readonly x2: number;
+}
+
 /** The complete geometric layout of a circuit. */
 export interface LayoutResult {
   /** Overall diagram size (used for the SVG viewBox). */
@@ -72,4 +82,6 @@ export interface LayoutResult {
   readonly byId: ReadonlyMap<string, PlacedComponent>;
   /** Routed connections in the input order. */
   readonly connections: readonly RoutedConnection[];
+  /** Group pressure lines when method is cascade. */
+  readonly buses?: readonly PlacedBus[];
 }

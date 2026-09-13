@@ -32,6 +32,7 @@ import type {
   Point,
   RoutedConnection,
 } from './types.ts';
+import { layoutCascadeCircuit } from './cascade.ts';
 
 /** Tunable, deterministic geometry. All units are SVG user units. */
 export const LAYOUT_METRICS = {
@@ -94,6 +95,10 @@ export function naturalCompare(a: string, b: string): number {
  * @returns an immutable {@link LayoutResult}.
  */
 export function layoutCircuit(circuit: Circuit): LayoutResult {
+  if (circuit.method === 'cascade') {
+    return layoutCascadeCircuit(circuit);
+  }
+
   const { margin, colPitch, bandPitch, cellWidth, cellHeight } = LAYOUT_METRICS;
 
   // 1) Bucket components into bands by kind, keeping a stable natural order.

@@ -11,6 +11,7 @@
 
 import type { Circuit } from '../domain/index.ts';
 import type { CircuitLogicalModel } from '../engine/model.ts';
+import type { CascadeLogicalModel } from '../engine/cascade/model.ts';
 import { validateCircuit } from '../validator/index.ts';
 import type { ValidationIssue } from '../validator/index.ts';
 
@@ -32,7 +33,10 @@ export class RenderRefusedError extends Error {
  * Validate `circuit` and throw {@link RenderRefusedError} if it is not
  * renderable. Returns nothing on success.
  */
-export function assertRenderable(circuit: Circuit, model?: CircuitLogicalModel): void {
+export function assertRenderable(
+  circuit: Circuit,
+  model?: CircuitLogicalModel | CascadeLogicalModel,
+): void {
   // Route EVERY refusal reason through the validator (single validation path).
   // A missing/malformed circuit is handled inside validateCircuit, which emits
   // a real LOGICAL_CONFLICT issue rather than the guard fabricating a code.
