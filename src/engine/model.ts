@@ -16,6 +16,7 @@
 import type {
   ActuatorId,
   Direction,
+  InitialState,
   SolverMethod,
 } from '../domain/index.ts';
 
@@ -193,6 +194,7 @@ export interface CircuitLogicalModel {
   /** Canonical sequence string this model was built from. */
   readonly sequence: string;
   readonly actuators: readonly ActuatorId[];
+  readonly initialState?: InitialState;
   readonly steps: readonly PlanStep[];
   readonly ladder: Ladder;
   readonly pneumatic: PneumaticModel;

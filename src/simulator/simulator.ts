@@ -57,7 +57,7 @@ export interface SimResult {
   readonly completed: boolean;
 }
 
-/** Build the initial state: all cylinders retracted, home sensors ACTIVE. */
+/** Build the initial state: respect model.initialState if present, defaulting to retracted. */
 export function initialSimState(model: CircuitLogicalModel): SimState {
   const relays = new Map<string, 'ON' | 'OFF'>();
   const solenoids = new Map<string, 'ON' | 'OFF'>();
@@ -68,12 +68,14 @@ export function initialSimState(model: CircuitLogicalModel): SimState {
   for (const id of model.relayIds) relays.set(id, 'OFF');
   for (const id of model.solenoidIds) solenoids.set(id, 'OFF');
   for (const actuator of model.actuators) {
-    cylinders.set(actuator, 'RETRACTED');
-    sensors.set(retractedSensorId(actuator), 'ACTIVE');
-    sensors.set(advancedSensorId(actuator), 'INACTIVE');
+    const isExtended = model.initialState?.positions[actuator] === 'extended';
+    cylinders.set(actuator, isExtended ? 'EXTENDED' : 'RETRACTED');
+    sensors.set(retractedSensorId(actuator), isExtended ? 'INACTIVE' : 'ACTIVE');
+    sensors.set(advancedSensorId(actuator), isExtended ? 'ACTIVE' : 'INACTIVE');
   }
   for (const valve of model.pneumatic.valves) {
-    valves.set(valve.id, 'STATE_1'); // STATE_1 = retracted position
+    const isExtended = model.initialState?.positions[valve.actuator] === 'extended';
+    valves.set(valve.id, isExtended ? 'STATE_2' : 'STATE_1');
   }
 
   return { relays, solenoids, sensors, cylinders, valves, startPressed: false };

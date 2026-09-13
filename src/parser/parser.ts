@@ -76,7 +76,7 @@ export function parseSequence(
   }
 
   const actuators = detectActuators(steps);
-  const initialState = resolveInitialState(actuators, options);
+  const initialState = resolveInitialState(actuators, steps, options);
   const canonical = canonicalize(steps);
 
   return ok({ steps, actuators, initialState, canonical });
@@ -308,12 +308,35 @@ function detectActuators(steps: readonly Step[]): ActuatorId[] {
 
 function resolveInitialState(
   actuators: readonly ActuatorId[],
+  steps: readonly Step[],
   options: ParseOptions,
 ): InitialState {
-  if (options.initialState === undefined) {
-    return defaultInitialState(actuators);
+  const positions: Record<ActuatorId, RestState> = {};
+  for (const actuator of actuators) {
+    if (options.initialState && actuator in options.initialState) {
+      positions[actuator] = options.initialState[actuator]!;
+    } else {
+      let firstDir: '+' | '-' | undefined;
+      for (const step of steps) {
+        for (const mv of step.movements) {
+          if (mv.actuator === actuator) {
+            firstDir = mv.direction;
+            break;
+          }
+        }
+        if (firstDir !== undefined) break;
+      }
+      positions[actuator] = firstDir === '-' ? 'extended' : 'retracted';
+    }
   }
-  return initialStateFrom(actuators, options.initialState);
+  if (options.initialState) {
+    for (const actuator of Object.keys(options.initialState)) {
+      if (!(actuator in positions)) {
+        positions[actuator] = options.initialState[actuator] as RestState;
+      }
+    }
+  }
+  return { positions };
 }
 
 /**

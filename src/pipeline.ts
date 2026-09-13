@@ -33,6 +33,8 @@ export interface GenerateRequest {
   readonly type: CircuitType;
   readonly method: Method;
   readonly mode: Mode;
+  /** Explicit initial positions per actuator. Defaults to inferring 'extended' for '-' opening, 'retracted' otherwise. */
+  readonly initialState?: Readonly<Record<string, 'retracted' | 'extended'>>;
 }
 
 /** A per-step summary for the "Etapas" tab. */
@@ -76,7 +78,7 @@ export interface GenerateResult {
  * errors (bad sequence, invalid circuit); returns `{ ok: false, error }`.
  */
 export function generate(req: GenerateRequest): GenerateResult {
-  const parsed = parseSequence(req.sequence);
+  const parsed = parseSequence(req.sequence, req.initialState ? { initialState: req.initialState } : undefined);
   if (!parsed.ok) {
     return { ok: false, error: `Sequencia invalida: ${parsed.error.message}` };
   }

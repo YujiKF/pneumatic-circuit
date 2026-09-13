@@ -33,9 +33,11 @@ export const ValidationCode = {
   DUPLICATE_COMPONENT: 'VAL_DUPLICATE_COMPONENT',
   NONEXISTENT_SENSOR: 'VAL_NONEXISTENT_SENSOR',
   NONEXISTENT_RELAY: 'VAL_NONEXISTENT_RELAY',
+  NONEXISTENT_SOLENOID: 'VAL_NONEXISTENT_SOLENOID',
   COIL_WITHOUT_COMPONENT: 'VAL_COIL_WITHOUT_COMPONENT',
   IMPOSSIBLE_TRANSITION: 'VAL_IMPOSSIBLE_TRANSITION',
   STEP_WITHOUT_EXIT: 'VAL_STEP_WITHOUT_EXIT',
+  UNREACHABLE_STEP: 'VAL_UNREACHABLE_STEP',
   LOGICAL_CONFLICT: 'VAL_LOGICAL_CONFLICT',
 } as const;
 
@@ -220,6 +222,19 @@ function validateReferences(
     if (c.kind === 'coil') solenoidCoilIds.add(c.id);
   }
 
+  const validSolenoids = new Set<string>();
+  for (const c of circuit.components) {
+    if (c.kind === 'directional-valve' && c.actuator) {
+      const n = c.actuator.charCodeAt(0) - 'A'.charCodeAt(0) + 1;
+      validSolenoids.add(`${n}Y1`);
+      validSolenoids.add(`${n}Y2`);
+    } else if (c.kind === 'cylinder' && c.actuator) {
+      const n = c.actuator.charCodeAt(0) - 'A'.charCodeAt(0) + 1;
+      validSolenoids.add(`${n}Y1`);
+      validSolenoids.add(`${n}Y2`);
+    }
+  }
+
   for (const c of circuit.components) {
     if (c.kind === 'contact') {
       const owner = c.ownerId;
@@ -242,8 +257,8 @@ function validateReferences(
     }
     if (c.kind === 'coil') {
       // COIL_WITHOUT_COMPONENT / NONEXISTENT_RELAY: a relay coil must back a
-      // declared relay. A solenoid coil (id === relayId, matches \dY\d) is its
-      // own component and is exempt.
+      // declared relay. A solenoid coil (id === relayId, matches \dY\d) must
+      // correspond to a declared actuator/valve.
       const backing = c.relayId;
       const isSolenoid = /^\d+Y\d+$/.test(backing);
       if (!isSolenoid) {
@@ -251,6 +266,14 @@ function validateReferences(
           issues.push({
             code: ValidationCode.COIL_WITHOUT_COMPONENT,
             message: `Coil "${c.id}" has no backing relay component "${backing}".`,
+            subject: c.id,
+          });
+        }
+      } else {
+        if (validSolenoids.size > 0 && !validSolenoids.has(backing)) {
+          issues.push({
+            code: ValidationCode.NONEXISTENT_SOLENOID,
+            message: `Solenoid coil "${c.id}" does not correspond to any declared cylinder or valve.`,
             subject: c.id,
           });
         }
@@ -359,6 +382,68 @@ function validateLogical(
             subject: step.relayId,
           });
         }
+      }
+    }
+  }
+
+  // NONEXISTENT_SOLENOID (model level): every movement must drive a solenoid on a declared valve
+  const declaredSolenoids = new Set(
+    model.pneumatic.valves.flatMap((v) => [v.advanceSolenoidId, v.retractSolenoidId]),
+  );
+  for (const step of model.steps) {
+    for (const mv of step.movements) {
+      if (!declaredSolenoids.has(mv.solenoidId)) {
+        issues.push({
+          code: ValidationCode.NONEXISTENT_SOLENOID,
+          message: `Movement ${mv.actuator}${mv.direction} in step ${step.relayId} commands nonexistent solenoid "${mv.solenoidId}".`,
+          subject: mv.solenoidId,
+        });
+      }
+    }
+  }
+
+  // UNREACHABLE_STEP: step 0 must be enabled by start; each subsequent step must be
+  // linked to its predecessor by a prev-line contact and producible arrival sensors.
+  const reachable = new Set<number>();
+  for (let i = 0; i < n; i++) {
+    const step = model.steps[i];
+    if (step === undefined) continue;
+    if (i === 0) {
+      if (step.enabledByStart) {
+        reachable.add(0);
+      } else {
+        issues.push({
+          code: ValidationCode.UNREACHABLE_STEP,
+          message: `Step ${step.relayId} is unreachable: initial step is not enabled by start button.`,
+          subject: step.relayId,
+        });
+      }
+    } else {
+      const prevReachable = reachable.has(i - 1);
+      const prevStep = model.steps[i - 1];
+      const rung = controlRungByRelay.get(step.relayId);
+      const hasPrevLine =
+        rung !== undefined &&
+        rung.setBranches.some((b) =>
+          b.contacts.some((c) => c.driverId === prevStep?.relayId),
+        );
+      const enableSensors =
+        step.enableSensorIds ??
+        (step.enableSensorId !== undefined ? [step.enableSensorId] : []);
+      const sensorsProducible =
+        enableSensors.length > 0 &&
+        enableSensors.every((sensorId) =>
+          model.steps.slice(0, i).some((s) => s.movements.some((mv) => mv.arrivalSensorId === sensorId)),
+        );
+
+      if (prevReachable && hasPrevLine && sensorsProducible) {
+        reachable.add(i);
+      } else {
+        issues.push({
+          code: ValidationCode.UNREACHABLE_STEP,
+          message: `Step ${step.relayId} is unreachable from step ${prevStep?.relayId ?? 'start'}.`,
+          subject: step.relayId,
+        });
       }
     }
   }

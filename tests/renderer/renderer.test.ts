@@ -85,6 +85,56 @@ test('ladder renderer draws coils and contacts', () => {
   assert.ok(/class="(NOContactSymbol|NCContactSymbol)/.test(svg), 'draws contacts');
 });
 
+test('ladder renderer has clean wire geometry with zero duplicate overlapping lines', () => {
+  const { circuit, model } = golden();
+  const svg = renderLadder(circuit, model);
+
+  // Extract all <line> coordinates
+  const lineRegex = /<line\s+[^>]*x1="([^"]+)"\s+y1="([^"]+)"\s+x2="([^"]+)"\s+y2="([^"]+)"/g;
+  const lineSet = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = lineRegex.exec(svg)) !== null) {
+    const p1 = `${match[1]},${match[2]}`;
+    const p2 = `${match[3]},${match[4]}`;
+    const key = p1 < p2 ? `${p1}->${p2}` : `${p2}->${p1}`;
+    assert.ok(!lineSet.has(key), `Duplicate line detected at ${key}`);
+    lineSet.add(key);
+  }
+});
+
+test('ladder renderer maintains clean clearance between contact labels and horizontal wires', () => {
+  const { circuit, model } = golden();
+  const svg = renderLadder(circuit, model);
+
+  // Extract contact symbol labels and verify no horizontal wire runs through them
+  // Label text is at (cx, y - 6) with font-size 12 (extending roughly from y-16 to y-4)
+  const labelRegex = /<text[^>]*y="([^"]+)"[^>]*class="symbol-label">([^<]+)<\/text>/g;
+  const labelYs: number[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = labelRegex.exec(svg)) !== null) {
+    labelYs.push(Number(match[1]));
+  }
+
+  // Extract horizontal wires
+  const wireRegex = /<line[^>]*y1="([^"]+)"[^>]*y2="([^"]+)"[^>]*stroke-width="1.5"/g;
+  const wireYs: number[] = [];
+  while ((match = wireRegex.exec(svg)) !== null) {
+    if (match[1] === match[2]) {
+      wireYs.push(Number(match[1]));
+    }
+  }
+
+  // Ensure no horizontal wire falls within [labelY - 12, labelY + 2]
+  for (const ly of labelYs) {
+    for (const wy of wireYs) {
+      assert.ok(
+        wy < ly - 12 || wy > ly + 2,
+        `Wire at y=${wy} intersects contact label at y=${ly}`,
+      );
+    }
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Refusal path
 // ---------------------------------------------------------------------------

@@ -36,7 +36,15 @@
  * relay; its downstream enabling still uses the timed step's arrival sensor.
  */
 
-import type { SequenceModel, Step, Movement } from '../../domain/index.ts';
+import type {
+  ActuatorId,
+  InitialState,
+  Movement,
+  RestState,
+  SequenceModel,
+  Step,
+} from '../../domain/index.ts';
+import { initialStateFrom } from '../../domain/index.ts';
 import type {
   CircuitLogicalModel,
   CycleMode,
@@ -63,6 +71,8 @@ export interface StepByStepOptions {
   readonly startButtonId?: string;
   /** Default delay assigned to timer steps, seconds. Default 0.3. */
   readonly defaultDelaySeconds?: number;
+  /** Explicit initial rest positions per actuator. Defaults to sequence.initialState. */
+  readonly initialState?: Readonly<Record<ActuatorId, RestState>> | InitialState;
 }
 
 const DEFAULT_DELAY = 0.3;
@@ -78,6 +88,11 @@ export function solveStepByStep(
   const cycleMode: CycleMode = options.cycleMode ?? 'single';
   const startButtonId = options.startButtonId ?? 'E';
   const defaultDelay = options.defaultDelaySeconds ?? DEFAULT_DELAY;
+  const initialState: InitialState = options.initialState
+    ? ('positions' in options.initialState
+      ? (options.initialState as InitialState)
+      : initialStateFrom(sequence.actuators, options.initialState))
+    : sequence.initialState;
 
   const planSteps = buildPlanSteps(sequence.steps, defaultDelay);
   const ladder = buildLadder(planSteps, startButtonId, cycleMode);
@@ -92,6 +107,7 @@ export function solveStepByStep(
     cycleMode,
     sequence: sequence.canonical,
     actuators: sequence.actuators,
+    initialState,
     steps: planSteps,
     ladder,
     pneumatic,
@@ -258,19 +274,31 @@ function buildLadder(
     });
   }
 
-  // --- power rungs: each movement's solenoid energized by its step relay ---
+  // --- power rungs: each unique solenoid energized by its step relays in parallel ---
+  const solenoidRelays = new Map<string, string[]>();
   for (let i = 0; i < n; i++) {
     const step = steps[i] as PlanStep;
     for (const mv of step.movements) {
-      rungs.push({
-        number: rungNumber++,
-        setBranches: [
-          { contacts: [{ driverId: step.relayId, type: 'NO', role: 'prev-line' }] },
-        ],
-        resetContacts: [],
-        coil: { kind: 'solenoid', id: mv.solenoidId },
-      });
+      const relays = solenoidRelays.get(mv.solenoidId);
+      if (relays !== undefined) {
+        if (!relays.includes(step.relayId)) {
+          relays.push(step.relayId);
+        }
+      } else {
+        solenoidRelays.set(mv.solenoidId, [step.relayId]);
+      }
     }
+  }
+
+  for (const [solId, relays] of solenoidRelays) {
+    rungs.push({
+      number: rungNumber++,
+      setBranches: relays.map((rId) => ({
+        contacts: [{ driverId: rId, type: 'NO', role: 'prev-line' }],
+      })),
+      resetContacts: [],
+      coil: { kind: 'solenoid', id: solId },
+    });
   }
 
   return { rungs };

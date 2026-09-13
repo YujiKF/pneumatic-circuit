@@ -67,10 +67,12 @@ function labelText(f: { cx: number; y: number }, label?: string): string {
 }
 
 /** Small port marker + its numeric/letter label. */
-function port(px: number, py: number, name: string): string {
+function port(px: number, py: number, name: string, showLabel: boolean = true): string {
   return (
     circle(px, py, 2.5, { fill: STROKE, stroke: 'none', class: `port port-${esc(name)}` }) +
-    text(px + 4, py - 4, name, { 'font-size': 9, fill: '#555', stroke: 'none', class: 'port-label' })
+    (showLabel
+      ? text(px + 4, py - 4, name, { 'font-size': 9, fill: '#555', stroke: 'none', class: 'port-label' })
+      : '')
   );
 }
 
@@ -268,8 +270,8 @@ export class SolenoidSymbol {
       line(bx, by + boxH, bx + boxW, by, baseAttrs),
       line(bx, f.cy, f.x, f.cy, baseAttrs),
       line(bx + boxW, f.cy, f.x + f.w, f.cy, baseAttrs),
-      port(f.x, f.cy, 'in'),
-      port(f.x + f.w, f.cy, 'out'),
+      port(f.x, f.cy, 'in', false),
+      port(f.x + f.w, f.cy, 'out', false),
       labelText(f, this.opts.label),
     );
   }
@@ -293,8 +295,8 @@ export class RelayCoilSymbol {
       circle(f.cx, f.cy, boxH / 2, baseAttrs),
       line(bx, f.cy, f.x, f.cy, baseAttrs),
       line(bx + boxW, f.cy, f.x + f.w, f.cy, baseAttrs),
-      port(f.x, f.cy, 'a1'),
-      port(f.x + f.w, f.cy, 'a2'),
+      port(f.x, f.cy, 'a1', false),
+      port(f.x + f.w, f.cy, 'a2', false),
       labelText(f, this.opts.label),
     );
   }
@@ -318,8 +320,8 @@ export class NOContactSymbol {
       line(rightX, f.cy, f.x + f.w, f.cy, baseAttrs),
       // hinged bar (open, angled up-left).
       line(leftX, f.cy, rightX - gap * 0.15, f.cy - gap * 0.7, baseAttrs),
-      port(f.x, f.cy, 'in'),
-      port(f.x + f.w, f.cy, 'out'),
+      port(f.x, f.cy, 'in', false),
+      port(f.x + f.w, f.cy, 'out', false),
       labelText(f, this.opts.label),
     );
   }
@@ -344,8 +346,8 @@ export class NCContactSymbol {
       // hinged bar crossing the gap (closed) with the NC cross-bar.
       line(leftX, f.cy, rightX, f.cy - gap * 0.7, baseAttrs),
       line(rightX, f.cy - gap * 0.9, rightX, f.cy + gap * 0.3, baseAttrs),
-      port(f.x, f.cy, 'in'),
-      port(f.x + f.w, f.cy, 'out'),
+      port(f.x, f.cy, 'in', false),
+      port(f.x + f.w, f.cy, 'out', false),
       labelText(f, this.opts.label),
     );
   }

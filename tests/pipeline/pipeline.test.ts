@@ -40,6 +40,68 @@ test('generate() supports the cascade method (pneumatic only)', () => {
   assert.equal(res.ladderSvg, undefined);
 });
 
+test('generate() returns full result for A+B+B-A-', () => {
+  const res = generate({
+    sequence: 'A+B+B-A-',
+    type: 'electropneumatic',
+    method: 'step-by-step',
+    mode: 'single',
+  });
+  assert.ok(res.ok, res.error);
+  assert.ok(res.pneumaticSvg?.includes('<svg'));
+  assert.ok(res.ladderSvg?.includes('<svg'));
+  assert.equal(res.steps?.length, 4);
+  assert.ok(res.verification?.ok);
+  assert.ok(res.funcionamento?.some((l) => l.includes('cycle for A+B+B-A- is complete')));
+});
+
+test('generate() returns full result for A+B+C+A-B-C- (3 cylinders, 6 steps)', () => {
+  const res = generate({
+    sequence: 'A+B+C+A-B-C-',
+    type: 'electropneumatic',
+    method: 'step-by-step',
+    mode: 'single',
+  });
+  assert.ok(res.ok, res.error);
+  assert.ok(res.pneumaticSvg?.includes('<svg'));
+  assert.ok(res.ladderSvg?.includes('<svg'));
+  assert.equal(res.steps?.length, 6);
+  assert.ok(res.verification?.ok);
+  assert.ok(res.funcionamento?.some((l) => l.includes('cycle for A+B+C+A-B-C- is complete')));
+});
+
+test('generate() returns full result for B-C+A+B+C-A- (initial extended cylinder)', () => {
+  const res = generate({
+    sequence: 'B-C+A+B+C-A-',
+    type: 'electropneumatic',
+    method: 'step-by-step',
+    mode: 'single',
+  });
+  assert.ok(res.ok, res.error);
+  assert.ok(res.pneumaticSvg?.includes('<svg'));
+  assert.ok(res.ladderSvg?.includes('<svg'));
+  assert.equal(res.steps?.length, 6);
+  assert.ok(res.verification?.ok);
+  assert.equal(res.steps?.[0]?.solenoidId, '2Y2');
+  assert.ok(res.funcionamento?.some((l) => l.includes('cycle for B-C+A+B+C-A- is complete')));
+});
+
+test('generate() returns full result for A-B+B-B+B-TA+ (timer + paralleled solenoids)', () => {
+  const res = generate({
+    sequence: 'A-B+B-B+B-TA+',
+    type: 'electropneumatic',
+    method: 'step-by-step',
+    mode: 'single',
+  });
+  assert.ok(res.ok, res.error);
+  assert.ok(res.pneumaticSvg?.includes('<svg'));
+  assert.ok(res.ladderSvg?.includes('<svg'));
+  assert.equal(res.steps?.length, 6);
+  assert.ok(res.verification?.ok);
+  assert.equal(res.steps?.[5]?.hasTimer, true);
+  assert.ok(res.funcionamento?.some((l) => l.includes('cycle for A-B+B-B+B-TA+ is complete')));
+});
+
 test('generate() fails gracefully on an invalid sequence', () => {
   const res = generate({
     sequence: 'A++',

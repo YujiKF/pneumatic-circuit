@@ -17,6 +17,7 @@ import { solveStepByStep } from '../../src/engine/index.ts';
 import type { CircuitLogicalModel } from '../../src/engine/index.ts';
 import { toCircuit } from '../../src/engine/index.ts';
 import { validateCircuit } from '../../src/validator/index.ts';
+import { runCycle, explain } from '../../src/simulator/index.ts';
 
 function solve(
   raw: string,
@@ -120,11 +121,13 @@ test("golden A+B+B-A-: 4 steps K1..K4 mapped to 1Y/2Y solenoids", () => {
 // ---------------------------------------------------------------------------
 // Golden (a): A-B+B-B+B-TA+  (deck 2 Ex4a, 6 steps, timer on the T step)
 // ---------------------------------------------------------------------------
-test("golden A-B+B-B+B-TA+: 6 steps K1..K6 with a TIME relay on the T step", () => {
-  // A starts extended (the sequence opens with A-).
-  const model = solve('A-B+B-B+B-TA+', { initialState: { A: 'extended' } });
+test("golden A-B+B-B+B-TA+: 6 steps K1..K6 with a TIME relay on the T step and parallel solenoids", () => {
+  // A starts extended: auto-inferred by parser because opening movement is A-.
+  const model = solve('A-B+B-B+B-TA+');
   assert.equal(model.steps.length, 6);
   assert.deepEqual(model.relayIds, ['K1', 'K2', 'K3', 'K4', 'K5', 'K6']);
+  assert.equal(model.initialState?.positions['A'], 'extended');
+  assert.equal(model.initialState?.positions['B'], 'retracted');
 
   const expected = [
     { sol: '1Y2', sens: '1S1', timer: false }, // A-
@@ -158,8 +161,155 @@ test("golden A-B+B-B+B-TA+: 6 steps K1..K6 with a TIME relay on the T step", () 
   const solSet = new Set(model.solenoidIds);
   for (const s of solSet) assert.ok(['1Y1', '1Y2', '2Y1', '2Y2'].includes(s));
 
+  // Power rung paralleling check:
+  // 6 control rungs + 4 power rungs (1Y2, 2Y1, 2Y2, 1Y1) = 10 rungs
+  assert.equal(model.ladder.rungs.length, 10, '6 control rungs + 4 power rungs (parallel 2Y1 & 2Y2)');
+  const rung2Y1 = model.ladder.rungs.find((r) => r.coil.id === '2Y1');
+  assert.ok(rung2Y1, 'rung for 2Y1 exists');
+  assert.equal(rung2Y1.setBranches.length, 2, '2Y1 has 2 parallel set branches');
+  assert.deepEqual(
+    rung2Y1.setBranches.map((b) => b.contacts[0]?.driverId),
+    ['K2', 'K4'],
+    '2Y1 driven by K2 and K4 in parallel',
+  );
+  const rung2Y2 = model.ladder.rungs.find((r) => r.coil.id === '2Y2');
+  assert.ok(rung2Y2, 'rung for 2Y2 exists');
+  assert.equal(rung2Y2.setBranches.length, 2, '2Y2 has 2 parallel set branches');
+  assert.deepEqual(
+    rung2Y2.setBranches.map((b) => b.contacts[0]?.driverId),
+    ['K3', 'K5'],
+    '2Y2 driven by K3 and K5 in parallel',
+  );
+
   const report = validateCircuit(circuit, model);
   assert.ok(report.ok, report.issues.map((i) => i.code).join(','));
+
+  const sim = runCycle(model, { pulseStart: true });
+  assert.equal(sim.completed, true, 'A-B+B-B+B-TA+ cycle completes');
+  assert.equal(sim.state.cylinders.get('A'), 'EXTENDED');
+  assert.equal(sim.state.cylinders.get('B'), 'RETRACTED');
+});
+
+// ---------------------------------------------------------------------------
+// Golden: A+B+C+A-B-C-  (3 cylinders, 6 steps K1..K6)
+// ---------------------------------------------------------------------------
+test("golden A+B+C+A-B-C-: 6 steps K1..K6 mapped to 1Y/2Y/3Y solenoids", () => {
+  const model = solve('A+B+C+A-B-C-');
+  assert.equal(model.method, 'step-by-step');
+  assert.equal(model.steps.length, 6);
+  assert.deepEqual(model.relayIds, ['K1', 'K2', 'K3', 'K4', 'K5', 'K6']);
+  assert.deepEqual(model.actuators, ['A', 'B', 'C']);
+
+  const expected = [
+    { relay: 'K1', act: 'A', dir: '+', sol: '1Y1', sens: '1S2', enable: 'START' },
+    { relay: 'K2', act: 'B', dir: '+', sol: '2Y1', sens: '2S2', enable: '1S2' },
+    { relay: 'K3', act: 'C', dir: '+', sol: '3Y1', sens: '3S2', enable: '2S2' },
+    { relay: 'K4', act: 'A', dir: '-', sol: '1Y2', sens: '1S1', enable: '3S2' },
+    { relay: 'K5', act: 'B', dir: '-', sol: '2Y2', sens: '2S1', enable: '1S1' },
+    { relay: 'K6', act: 'C', dir: '-', sol: '3Y2', sens: '3S1', enable: '2S1' },
+  ];
+  for (let i = 0; i < expected.length; i++) {
+    const e = expected[i]!;
+    const step = model.steps[i]!;
+    assert.equal(step.relayId, e.relay);
+    const mv = step.movements[0]!;
+    assert.equal(mv.actuator, e.act);
+    assert.equal(mv.direction, e.dir);
+    assert.equal(mv.solenoidId, e.sol);
+    assert.equal(mv.arrivalSensorId, e.sens);
+    if (e.enable === 'START') {
+      assert.equal(step.enabledByStart, true);
+    } else {
+      assert.equal(step.enableSensorId, e.enable);
+    }
+    assertSealTopology(model, e.relay);
+  }
+
+  assert.deepEqual(
+    [...model.solenoidIds].sort(),
+    ['1Y1', '1Y2', '2Y1', '2Y2', '3Y1', '3Y2'],
+  );
+
+  // 6 control rungs + 6 power rungs = 12 rungs
+  assert.equal(model.ladder.rungs.length, 12, '6 control rungs + 6 power rungs');
+  assert.equal(model.pneumatic.cylinders.length, 3, '3 pneumatic cylinders');
+  assert.equal(model.pneumatic.valves.length, 3, '3 5/2 directional valves');
+
+  const report = validateCircuit(toCircuit(model), model);
+  assert.ok(report.ok, report.issues.map((i) => i.code).join(','));
+
+  // Simulation verification
+  const sim = runCycle(model, { pulseStart: true });
+  assert.equal(sim.completed, true, 'A+B+C+A-B-C- cycle completes');
+  assert.equal(sim.state.cylinders.get('A'), 'RETRACTED');
+  assert.equal(sim.state.cylinders.get('B'), 'RETRACTED');
+  assert.equal(sim.state.cylinders.get('C'), 'RETRACTED');
+});
+
+// ---------------------------------------------------------------------------
+// Golden: B-C+A+B+C-A-  (3 cylinders, 6 steps K1..K6, B starts extended)
+// ---------------------------------------------------------------------------
+test("golden B-C+A+B+C-A-: 6 steps K1..K6 with cylinder B starting extended", () => {
+  // Cylinder B starts extended: auto-inferred because first motion is B-
+  const model = solve('B-C+A+B+C-A-');
+  assert.equal(model.method, 'step-by-step');
+  assert.equal(model.steps.length, 6);
+  assert.deepEqual(model.relayIds, ['K1', 'K2', 'K3', 'K4', 'K5', 'K6']);
+  assert.equal(model.initialState?.positions['B'], 'extended');
+  assert.equal(model.initialState?.positions['A'], 'retracted');
+  assert.equal(model.initialState?.positions['C'], 'retracted');
+
+  const expected = [
+    { relay: 'K1', act: 'B', dir: '-', sol: '2Y2', sens: '2S1', enable: 'START' },
+    { relay: 'K2', act: 'C', dir: '+', sol: '3Y1', sens: '3S2', enable: '2S1' },
+    { relay: 'K3', act: 'A', dir: '+', sol: '1Y1', sens: '1S2', enable: '3S2' },
+    { relay: 'K4', act: 'B', dir: '+', sol: '2Y1', sens: '2S2', enable: '1S2' },
+    { relay: 'K5', act: 'C', dir: '-', sol: '3Y2', sens: '3S1', enable: '2S2' },
+    { relay: 'K6', act: 'A', dir: '-', sol: '1Y2', sens: '1S1', enable: '3S1' },
+  ];
+  for (let i = 0; i < expected.length; i++) {
+    const e = expected[i]!;
+    const step = model.steps[i]!;
+    assert.equal(step.relayId, e.relay);
+    const mv = step.movements[0]!;
+    assert.equal(mv.actuator, e.act);
+    assert.equal(mv.direction, e.dir);
+    assert.equal(mv.solenoidId, e.sol);
+    assert.equal(mv.arrivalSensorId, e.sens);
+    if (e.enable === 'START') {
+      assert.equal(step.enabledByStart, true);
+    } else {
+      assert.equal(step.enableSensorId, e.enable);
+    }
+    assertSealTopology(model, e.relay);
+  }
+
+  assert.deepEqual(
+    [...model.solenoidIds].sort(),
+    ['1Y1', '1Y2', '2Y1', '2Y2', '3Y1', '3Y2'],
+  );
+
+  // 6 control rungs + 6 power rungs = 12 rungs
+  assert.equal(model.ladder.rungs.length, 12, '6 control rungs + 6 power rungs');
+  assert.equal(model.pneumatic.cylinders.length, 3, '3 pneumatic cylinders');
+  assert.equal(model.pneumatic.valves.length, 3, '3 5/2 directional valves');
+
+  const report = validateCircuit(toCircuit(model), model);
+  assert.ok(report.ok, report.issues.map((i) => i.code).join(','));
+
+  // Simulation verification: starts with B extended, and cycle returns home
+  const sim = runCycle(model, { pulseStart: true });
+  assert.equal(sim.completed, true, 'B-C+A+B+C-A- cycle completes');
+  assert.equal(sim.state.cylinders.get('A'), 'RETRACTED');
+  assert.equal(sim.state.cylinders.get('B'), 'EXTENDED');
+  assert.equal(sim.state.cylinders.get('C'), 'RETRACTED');
+
+  // Chronological explanation verification
+  const lines = explain(model);
+  assert.ok(lines.length > 10, 'generates chronological explanation without stall');
+  assert.ok(lines[0]?.includes('START'), 'explanation starts with START');
+  assert.ok(lines.some((l) => l.includes('2Y2')), 'mentions retract solenoid 2Y2');
+  assert.ok(lines.some((l) => l.includes('cycle for B-C+A+B+C-A- is complete')), 'completes full narrative');
 });
 
 // ---------------------------------------------------------------------------

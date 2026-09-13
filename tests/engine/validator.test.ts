@@ -138,6 +138,46 @@ test('detects COIL_WITHOUT_COMPONENT (relay coil with no backing relay)', () => 
   assert.ok(hasCode(report, ValidationCode.COIL_WITHOUT_COMPONENT));
 });
 
+test('detects NONEXISTENT_SOLENOID (solenoid coil does not match declared actuators)', () => {
+  const c = circuit([
+    { kind: 'cylinder', id: '1.0', actuator: 'A' },
+    { kind: 'directional-valve', id: '1.1', valveType: '5/2', actuation: 'double-pilot', actuator: 'A' },
+    { kind: 'coil', id: '9Y9', relayId: '9Y9' },
+  ]);
+  const report = validateCircuit(c);
+  assert.equal(report.ok, false);
+  assert.ok(hasCode(report, ValidationCode.NONEXISTENT_SOLENOID));
+});
+
+test('detects NONEXISTENT_SOLENOID at model level (movement commands undeclared solenoid)', () => {
+  const model = baseModel();
+  const steps = model.steps.map((s) =>
+    s.index === 0
+      ? {
+          ...s,
+          movements: [
+            { actuator: 'A', direction: '+' as const, solenoidId: '9Y9', arrivalSensorId: '1S2' },
+          ],
+        }
+      : s,
+  );
+  const broken: CircuitLogicalModel = { ...model, steps };
+  const report = validateCircuit(toEmpty(), broken);
+  assert.equal(report.ok, false);
+  assert.ok(hasCode(report, ValidationCode.NONEXISTENT_SOLENOID));
+});
+
+test('detects UNREACHABLE_STEP (step 0 not enabled by start or step disconnected)', () => {
+  const model = baseModel();
+  const steps = model.steps.map((s) =>
+    s.index === 0 ? { ...s, enabledByStart: false } : s,
+  );
+  const broken: CircuitLogicalModel = { ...model, steps };
+  const report = validateCircuit(toEmpty(), broken);
+  assert.equal(report.ok, false);
+  assert.ok(hasCode(report, ValidationCode.UNREACHABLE_STEP));
+});
+
 // --- model-level logical checks ---
 
 function baseModel(): CircuitLogicalModel {

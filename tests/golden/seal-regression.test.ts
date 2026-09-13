@@ -58,6 +58,44 @@ function mutateRemoveSeal(model: CircuitLogicalModel): CircuitLogicalModel {
   return { ...model, ladder: { rungs } };
 }
 
+/**
+ * Mutate the model so that K1's seal contact is driven by the WRONG relay (K2 instead of K1).
+ */
+function mutateMisplaceSealDriver(model: CircuitLogicalModel): CircuitLogicalModel {
+  const rungs: Rung[] = model.ladder.rungs.map((rung) => {
+    if (rung.coil.kind !== 'relay' || rung.coil.id !== 'K1') return rung;
+    const setBranches = rung.setBranches.map((b) => {
+      if (!b.contacts.some((c) => c.role === 'seal')) return b;
+      return {
+        contacts: b.contacts.map((c) =>
+          c.role === 'seal' ? { ...c, driverId: 'K2' } : c,
+        ),
+      };
+    });
+    return { ...rung, setBranches };
+  });
+  return { ...model, ladder: { rungs } };
+}
+
+/**
+ * Mutate the model so that K1's seal contact is NC instead of NO.
+ */
+function mutateInvertSealContact(model: CircuitLogicalModel): CircuitLogicalModel {
+  const rungs: Rung[] = model.ladder.rungs.map((rung) => {
+    if (rung.coil.kind !== 'relay' || rung.coil.id !== 'K1') return rung;
+    const setBranches = rung.setBranches.map((b) => {
+      if (!b.contacts.some((c) => c.role === 'seal')) return b;
+      return {
+        contacts: b.contacts.map((c) =>
+          c.role === 'seal' ? { ...c, type: 'NC' as const } : c,
+        ),
+      };
+    });
+    return { ...rung, setBranches };
+  });
+  return { ...model, ladder: { rungs } };
+}
+
 // ---------------------------------------------------------------------------
 // A local, minimal ladder evaluator matching src/simulator/simulator.ts so the
 // test can drive an explicit "START pulse then sensor opens" scenario.
@@ -191,3 +229,36 @@ test('validator flags a seal-less model as a LOGICAL_CONFLICT', () => {
     'missing seal is reported as LOGICAL_CONFLICT',
   );
 });
+
+test('seal MUTATION: misplaced seal driver (K2 instead of K1) fails simulation and validator', () => {
+  const good = solveModel();
+  const broken = mutateMisplaceSealDriver(good);
+
+  // K1 must drop after sensor opens because K2 is not energized at step 1
+  assert.equal(
+    k1HoldsAfterSensorOpens(broken),
+    false,
+    'mutated model with wrong seal driver MUST drop K1',
+  );
+
+  // Validator flags it as LOGICAL_CONFLICT
+  const brokenReport = validateCircuit(toCircuit(broken), broken);
+  assert.equal(brokenReport.ok, false);
+  assert.ok(
+    brokenReport.issues.some((i) => i.code === ValidationCode.LOGICAL_CONFLICT),
+    'misplaced seal driver is reported as LOGICAL_CONFLICT by validator',
+  );
+});
+
+test('seal MUTATION: non-NO seal contact (NC) fails and is rejected by validator', () => {
+  const good = solveModel();
+  const broken = mutateInvertSealContact(good);
+
+  const brokenReport = validateCircuit(toCircuit(broken), broken);
+  assert.equal(brokenReport.ok, false);
+  assert.ok(
+    brokenReport.issues.some((i) => i.code === ValidationCode.LOGICAL_CONFLICT),
+    'inverted NC seal contact is reported as LOGICAL_CONFLICT by validator',
+  );
+});
+
