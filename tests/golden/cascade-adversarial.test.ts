@@ -18,6 +18,7 @@ import { parseSequence } from '../../src/parser/index.ts';
 import { solveCascade, toCascadeCircuit } from '../../src/engine/index.ts';
 import type { CascadeLogicalModel } from '../../src/engine/index.ts';
 import type { Connection } from '../../src/domain/index.ts';
+import { runCascadeCycle } from '../../src/simulator/index.ts';
 
 function solve(raw: string, opts?: Parameters<typeof parseSequence>[1]): CascadeLogicalModel {
   const parsed = parseSequence(raw, opts);
@@ -34,19 +35,18 @@ function solve(raw: string, opts?: Parameters<typeof parseSequence>[1]): Cascade
 // at the logic level and produces a degenerate gate. The solver currently
 // emits it without complaint.
 // ---------------------------------------------------------------------------
-test('FINDING A: duplicate same-direction movement in a group yields a self-referential gate', () => {
+test('FINDING A: duplicate same-direction movement in a group avoids a self-referential gate', () => {
   const model = solve('A+B+B+A-B-B-');
   const g1 = model.groups[0]!;
   const bMoves = g1.movements.filter((m) => m.actuator === 'B');
   assert.equal(bMoves.length, 2);
   assert.equal(bMoves[0]!.arrivalSensorId, '2S2');
   assert.equal(bMoves[1]!.arrivalSensorId, '2S2');
-  // The DEFECT: the 2nd B+ is gated by the same sensor it would itself trip.
-  assert.equal(bMoves[1]!.startSensorId, '2S2', 'documents the self-referential gate (defect)');
+  // Resolved: the 2nd B+ is gated by the previous distinct arrival sensor in the group (1S2)
+  assert.equal(bMoves[1]!.startSensorId, '1S2', 'gated by previous distinct sensor, avoiding self-referential gate');
 });
 
-test('FINDING A (fix target): solver should flag or resolve a repeated same-position sensor in a group', (t) => {
-  t.todo('RULES §4: two sensors at same (actuator,end) must not both gate distinct movements');
+test('FINDING A (fix target): solver should flag or resolve a repeated same-position sensor in a group', () => {
   const model = solve('A+B+B+A-B-B-');
   const g1 = model.groups[0]!;
   const bMoves = g1.movements.filter((m) => m.actuator === 'B');
@@ -59,27 +59,22 @@ test('FINDING A (fix target): solver should flag or resolve a repeated same-posi
 });
 
 // ---------------------------------------------------------------------------
-// FINDING B (CRITICAL) — no behavioral verification that the cascade circuit
-// reproduces the sequence and returns to the initial state. Step-by-step has
-// runCycle; cascade has NO simulator. There is therefore no proof the projected
-// pneumatic cascade actually executes A+B+A-B-. This test documents the gap:
-// once a cascade simulator exists it must complete the cycle and return home.
+// FINDING B (CRITICAL) — behavioral verification that the cascade circuit
+// reproduces the sequence and returns to the initial state.
 // ---------------------------------------------------------------------------
-test('FINDING B (fix target): a cascade simulator must reproduce the sequence and return home', (t) => {
-  t.todo('No cascade simulator exists; behavioral correctness is unproven');
-  // Placeholder for the future: runCascadeCycle(model) should complete and
-  // leave every cylinder at its initial position for a balanced cycle.
-  assert.fail('cascade simulator not implemented — behavioral correctness unverified');
+test('FINDING B (fix target): a cascade simulator must reproduce the sequence and return home', () => {
+  for (const seq of ['A+B+A-B-', 'A+B+B-A-', 'B-C+A+B+C-A-', 'A+B-B+T(A-B-)B+']) {
+    const model = solve(seq);
+    const result = runCascadeCycle(model);
+    assert.equal(result.completed, true, `sequence "${seq}" must complete cycle`);
+    assert.equal(result.balanced, true, `sequence "${seq}" must return home`);
+    assert.ok(result.executedMovements.length > 0);
+  }
 });
 
 // ---------------------------------------------------------------------------
 // FINDING D (CRITICAL) — activation sensors reused across the memory chain are
-// wired RAW to memory pilots (sensor.out -> memory.14), with NO gating by the
-// current group line. When a stroke-end position repeats as several groups'
-// activation sensor (very common), the same physical sensor would pilot several
-// memory operations at once. The deck breaks this by making a sensor's signal
-// live ONLY while its group line is pressurized. `A+B-B+T(A-B-)B+` exhibits the
-// reuse: 2S1 sets M1 AND M3; 2S2 sets M2 and resets M1; 2S1 resets M2.
+// wired with group line gating.
 // ---------------------------------------------------------------------------
 test('FINDING D: activation sensor is reused across multiple memory pilots', () => {
   const model = solve('A+B-B+T(A-B-)B+');
@@ -93,8 +88,7 @@ test('FINDING D: activation sensor is reused across multiple memory pilots', () 
   assert.equal(m2.resetSensorId, '2S1');
 });
 
-test('FINDING D (fix target): reused activation sensors must be gated by their group line', (t) => {
-  t.todo('Projection wires sensor.out -> memory pilot with no group-line gating');
+test('FINDING D (fix target): reused activation sensors must be gated by their group line', () => {
   const model = solve('A+B-B+T(A-B-)B+');
   const circuit = toCascadeCircuit(model);
   const pilotDrivers = new Map<string, string[]>();

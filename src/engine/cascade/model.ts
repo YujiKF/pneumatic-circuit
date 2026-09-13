@@ -20,7 +20,7 @@
  * cascade logic. No enums (Node strip-only): closed sets are string unions.
  */
 
-import type { ActuatorId, Direction, SolverMethod } from '../../domain/index.ts';
+import type { ActuatorId, Direction, InitialState, SolverMethod } from '../../domain/index.ts';
 import type { CycleMode, PneumaticModel } from '../model.ts';
 import type { GroupDivision } from './groups.ts';
 
@@ -100,6 +100,7 @@ export interface CascadeLogicalModel {
   readonly method: SolverMethod;
   readonly cycleMode: CycleMode;
   readonly sequence: string;
+  readonly initialState?: InitialState;
   readonly actuators: readonly ActuatorId[];
   readonly groups: readonly CascadeGroupModel[];
   readonly memories: readonly CascadeMemoryValve[];

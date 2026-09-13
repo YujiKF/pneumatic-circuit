@@ -64,32 +64,73 @@ export function toCascadeCircuit(model: CascadeLogicalModel): Circuit {
   components.push(supply);
 
   // --- memory valves (bistable double-pilot 5/2) ---
+  const memByActivatesLine = new Map<string, string>();
+  for (const mem of model.memories) memByActivatesLine.set(mem.activatesLineId, mem.valveId);
+
+  // Track how many times each setSensorId is used across memories.
+  // When an activation sensor is reused across multiple memories (e.g. 2S1 for M1 and M3),
+  // each transition uses a dedicated limit switch component gated by the preceding group's line
+  // so no sensor raw-drives multiple memory pilots (Finding D).
+  const setSensorUsage = new Map<string, number>();
   for (const mem of model.memories) {
+    setSensorUsage.set(mem.setSensorId, (setSensorUsage.get(mem.setSensorId) ?? 0) + 1);
+  }
+
+  for (let idx = 0; idx < model.memories.length; idx++) {
+    const mem = model.memories[idx]!;
     components.push({
       kind: 'directional-valve',
       id: mem.valveId,
       valveType: '5/2',
       actuation: 'double-pilot',
     });
-    // SET pilot (port 14) driven by the activation sensor of the target group.
-    if (sensorSet.has(mem.setSensorId)) {
+
+    // Group line feeding this transition:
+    const deactLine = mem.deactivatesLineId; // line k
+    const lineSourceComp = memByActivatesLine.get(deactLine) ?? model.startButtonId;
+    const lineSourcePort = '2';
+
+    // If the activation sensor is reused across memory pilots, disambiguate by its group line:
+    const isReused = (setSensorUsage.get(mem.setSensorId) ?? 0) > 1;
+    const setDriverId = isReused ? `${mem.setSensorId}_${deactLine}` : mem.setSensorId;
+
+    if (isReused) {
+      // Ensure the disambiguated sensor component exists in components
+      const match = /^(\d+)S([12])/.exec(mem.setSensorId);
+      const actIdx = match ? parseInt(match[1]!, 10) - 1 : 0;
+      const actuator = model.actuators[actIdx] ?? 'A';
+      const position = match && match[2] === '1' ? 'retracted' : 'extended';
+      components.push({
+        kind: 'sensor',
+        id: setDriverId,
+        actuator,
+        position,
+      });
+      // Line feeds the sensor inlet:
       connections.push({
-        sourceComponent: mem.setSensorId,
-        sourcePort: 'out',
-        targetComponent: mem.valveId,
-        targetPort: '14',
+        sourceComponent: lineSourceComp,
+        sourcePort: lineSourcePort,
+        targetComponent: setDriverId,
+        targetPort: 'in',
         signalType: 'pneumatic',
       });
     }
-    // RESET pilot (port 12): the following group's activation sensor de-pilots
-    // this memory (RULES.md §7.5c). The LAST memory has no downstream reset
-    // sensor; its reset pilot is fed by the supply/start line so the chain
-    // returns to rest at cycle start.
-    const resetDriver =
-      mem.resetSensorId !== undefined && sensorSet.has(mem.resetSensorId)
-        ? mem.resetSensorId
-        : model.startButtonId;
-    const resetPort = resetDriver === model.startButtonId ? '2' : 'out';
+
+    // SET pilot (port 14) driven by the activation sensor
+    connections.push({
+      sourceComponent: setDriverId,
+      sourcePort: 'out',
+      targetComponent: mem.valveId,
+      targetPort: '14',
+      signalType: 'pneumatic',
+    });
+
+    // RESET pilot (port 12): In PMR3407 cascade, activating the next memory/line
+    // (or supply for the last memory) resets this memory (RULES C5.3).
+    // The next memory valve's port 2 (or supply line) provides the reset signal.
+    const nextMem = model.memories[idx + 1];
+    const resetDriver = nextMem ? nextMem.valveId : model.startButtonId;
+    const resetPort = '2';
     connections.push({
       sourceComponent: resetDriver,
       sourcePort: resetPort,
@@ -97,6 +138,7 @@ export function toCascadeCircuit(model: CascadeLogicalModel): Circuit {
       targetPort: '12',
       signalType: 'pneumatic',
     });
+
     // Supply feeds the memory valve inlet (port 1).
     connections.push({
       sourceComponent: model.startButtonId,
@@ -108,11 +150,6 @@ export function toCascadeCircuit(model: CascadeLogicalModel): Circuit {
   }
 
   // --- pressure lines: each group line drives its movements' main valve pilot.
-  // The line source is either the supply (first group) or the memory valve that
-  // activates that line (port 2 = advanced output of the memory valve). Each
-  // movement's signal is gated by its intra-group sensor when present. ---
-  const memByActivatesLine = new Map<string, string>();
-  for (const mem of model.memories) memByActivatesLine.set(mem.activatesLineId, mem.valveId);
 
   for (const group of model.groups) {
     const lineSourceComp = memByActivatesLine.get(group.lineId) ?? model.startButtonId;

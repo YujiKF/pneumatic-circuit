@@ -24,7 +24,7 @@ import type { Circuit } from './domain/index.ts';
 import { validateCircuit } from './validator/index.ts';
 import type { ValidationReport } from './validator/index.ts';
 import { renderPneumatic, renderLadder } from './renderer/index.ts';
-import { explain, runCycle } from './simulator/index.ts';
+import { explain, runCycle, runCascadeCycle } from './simulator/index.ts';
 
 /** Circuit technology chosen on screen. */
 export type CircuitType = 'pneumatic' | 'electropneumatic';
@@ -135,6 +135,8 @@ export function generate(req: GenerateRequest): GenerateResult {
     } else if (cascadeModel !== undefined) {
       funcionamento = explainCascade(cascadeModel);
       steps = summarizeCascadeSteps(cascadeModel);
+      // Confirm the cascade model actually simulates one full cycle.
+      runCascadeCycle(cascadeModel);
     } else {
       funcionamento = circuit.explanation;
     }

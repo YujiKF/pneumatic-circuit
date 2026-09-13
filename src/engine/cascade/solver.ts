@@ -99,6 +99,7 @@ export function solveCascade(
     method: 'cascade',
     cycleMode,
     sequence: sequence.canonical,
+    initialState: sequence.initialState,
     actuators: sequence.actuators,
     groups,
     memories,
@@ -196,9 +197,19 @@ function buildTransitions(
 function buildGroupMovements(movements: readonly Movement[]): CascadeMovement[] {
   const out: CascadeMovement[] = [];
   let prevArrival: string | undefined;
+  let lastDistinctArrival: string | undefined;
 
   for (const mv of movements) {
     const arrival = sensorIdForArrival(mv.actuator, mv.direction);
+    // If a repeated movement in the same group trips the same arrival sensor,
+    // gating it on that same sensor produces a degenerate self-referential gate
+    // (startSensorId === arrivalSensorId). Fall back to the previous distinct
+    // sensor in the group (or undefined if none, driven directly by line).
+    let startSensorId = prevArrival;
+    if (startSensorId !== undefined && startSensorId === arrival) {
+      startSensorId = lastDistinctArrival;
+    }
+
     out.push({
       actuator: mv.actuator,
       direction: mv.direction,
@@ -206,9 +217,13 @@ function buildGroupMovements(movements: readonly Movement[]): CascadeMovement[] 
       mainValveId: mainValveId(mv.actuator),
       // The first movement of a group is started by line pressurization; later
       // movements are gated by the previous movement's arrival sensor.
-      ...(prevArrival !== undefined ? { startSensorId: prevArrival } : {}),
+      ...(startSensorId !== undefined ? { startSensorId } : {}),
       arrivalSensorId: arrival,
     });
+
+    if (prevArrival !== undefined && prevArrival !== arrival) {
+      lastDistinctArrival = prevArrival;
+    }
     prevArrival = arrival;
   }
 
