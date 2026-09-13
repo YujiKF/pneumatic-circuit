@@ -20,6 +20,10 @@ declare module 'node:test' {
   interface TestContext {
     diagnostic(message: string): void;
     readonly name: string;
+    /** Mark the current test as TODO (reported as a known pending item). */
+    todo(message?: string): void;
+    /** Skip the current test at runtime. */
+    skip(message?: string): void;
   }
 
   type TestFn = (t: TestContext) => void | Promise<void>;
