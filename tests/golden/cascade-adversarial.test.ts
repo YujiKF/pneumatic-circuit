@@ -73,6 +73,67 @@ test('FINDING B (fix target): a cascade simulator must reproduce the sequence an
 });
 
 // ---------------------------------------------------------------------------
+// FINDING B2 (CRITICAL, re-audit of the fix) — the simulator must EXECUTE the
+// full target sequence, in order, not merely report completed/balanced. A
+// balanced final state is NOT proof of correctness: a cycle that skips a
+// movement (e.g. because a gate never opens) can still end balanced.
+// ---------------------------------------------------------------------------
+test('FINDING B2: executed movements equal the target sequence, in order', () => {
+  for (const seq of ['A+B+A-B-', 'A+B+B-A-', 'B-C+A+B+C-A-']) {
+    const model = solve(seq);
+    const result = runCascadeCycle(model);
+    // The canonical single-movement sequences flatten to exactly the input.
+    const target = model.groups.flatMap((g) =>
+      g.movements.map((m) => `${m.actuator}${m.direction}`),
+    );
+    assert.deepEqual(
+      [...result.executedMovements],
+      target,
+      `simulator must execute every movement of "${seq}" in order`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// FINDING B3 (CRITICAL, re-audit of the fix) — the simulator is NON-
+// DISCRIMINATING: it replays the group model and hardcodes completed=true, so
+// a circuit with a broken memory handoff or a gate that never opens is still
+// reported as completed & balanced. A trustworthy simulator MUST fail (not
+// complete, or not balanced, or not full-sequence) when the control logic is
+// broken. These probes currently pass on a broken model -> marked todo until
+// the simulator executes the PROJECTED circuit's memory/gating logic.
+// ---------------------------------------------------------------------------
+test('FINDING B3: simulator must reject a broken memory handoff', (t) => {
+  t.todo('Simulator replays the group model; it sets memories unconditionally and hardcodes completed=true');
+  const model = solve('A+B+A-B-');
+  // Corrupt the memory set-sensor so the handoff to line 2 can never be piloted.
+  const broken = structuredClone(model) as CascadeLogicalModel;
+  (broken.memories[0] as { setSensorId: string }).setSensorId = 'ZZZ_NEVER';
+  const result = runCascadeCycle(broken);
+  // A correct simulator would NOT be able to reach/execute group 2, so it must
+  // report an incomplete or unbalanced cycle (or a short executed list).
+  const executedAll =
+    result.completed &&
+    result.balanced &&
+    result.executedMovements.length ===
+      broken.groups.flatMap((g) => g.movements).length;
+  assert.equal(executedAll, false, 'a broken memory handoff must not pass as a complete, balanced, full cycle');
+});
+
+test('FINDING B4: simulator must reject a gate that never opens', (t) => {
+  t.todo('executeMovement silently skips an ungatable movement but the cycle still reports completed & balanced');
+  const model = solve('A+B+A-B-');
+  const broken = structuredClone(model) as CascadeLogicalModel;
+  // Make group 1's second movement (B+) gated by a sensor that never activates.
+  (broken.groups[0]!.movements[1] as { startSensorId: string }).startSensorId = 'NEVER_ACTIVE';
+  const result = runCascadeCycle(broken);
+  const target = broken.groups.flatMap((g) => g.movements.map((m) => `${m.actuator}${m.direction}`));
+  const executedFull =
+    result.completed && result.balanced && result.executedMovements.length === target.length;
+  assert.equal(executedFull, false, 'a movement whose gate never opens must break the cycle report');
+});
+
+// ---------------------------------------------------------------------------
 // FINDING D (CRITICAL) — activation sensors reused across the memory chain are
 // wired with group line gating.
 // ---------------------------------------------------------------------------

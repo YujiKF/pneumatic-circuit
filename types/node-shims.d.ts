@@ -62,6 +62,12 @@ declare module 'node:assert/strict' {
   export default assert;
 }
 
+/**
+ * `structuredClone` is a Node/global built-in (Node ≥ 17). Declared here (not
+ * in a module) so tests can deep-clone a logical model without an npm dep.
+ */
+declare function structuredClone<T>(value: T): T;
+
 declare module 'node:process' {
   interface Process {
     argv: string[];
