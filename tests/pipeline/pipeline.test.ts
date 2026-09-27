@@ -123,3 +123,12 @@ test('generate() fails gracefully on an invalid sequence', () => {
   assert.equal(res.ok, false);
   assert.ok(res.error && res.error.includes('invalida'), 'reports a parse error');
 });
+
+test('intuitive method: honest fallback warning, plus overlap warning for indirect sequences', () => {
+  const direct = generate({ sequence: 'A+B+A-B-', type: 'electropneumatic', method: 'intuitive', mode: 'single' });
+  assert.equal(direct.ok, true);
+  assert.equal(direct.warnings?.length, 1);
+  assert.match(direct.warnings![0]!, /passo a passo/);
+  const indirect = generate({ sequence: 'A+B+B-A-', type: 'electropneumatic', method: 'intuitive', mode: 'single' });
+  assert.ok(indirect.warnings!.some((w) => /1S2/.test(w) && /nao se aplica/.test(w)));
+});
