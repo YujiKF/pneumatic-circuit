@@ -89,6 +89,18 @@ Source: worked intuitive/step-by-step diagrams (all cylinders drawn home).
   parser does not silently assume "all retracted"; it fills the explicit map
   with the default, which a caller may override (e.g. for a sequence that
   begins with a `-` movement on a cylinder that starts extended).
+- **Inference rule [HYPOTHESIS, deterministic convention]:** when no explicit
+  position is given for an actuator, the parser infers it from the actuator's
+  FIRST movement in the sequence: a first `-` means the cylinder must start
+  **extended** (it can only retract from there); a first `+` means it starts
+  **retracted**. An explicit `initialState` always overrides the inference.
+  Example: `B-C+A+B+C-A-` → A, C retracted; B extended. Implemented in
+  `src/parser/parser.ts` (initial-state inference) and relied upon by the
+  cascade goldens (CASCADE_RULES C6). *(Closes Milestone-1 audit Obs.1.)*
+- **Returning cycle check:** a cycle's final state must equal its initial state
+  (§3). `nonReturningActuators()` (`src/domain/initial-state.ts`) lists the
+  actuators that end elsewhere; the pipeline reports them as a **warning**
+  (the circuit is still generated, but it cannot repeat).
 
 ---
 
@@ -235,6 +247,19 @@ step-by-step solver feature).
 **Arming the last line:** an **extra rung/branch** is required to arm the last
 step's line so the first press (single cycle) or the wrap-around (continuous)
 starts correctly.
+
+*Realization used by the generator (Milestone-1 audit Obs.2).* The deck draws
+an extra branch fed by START that arms the last line at rest. The generator
+realizes the same observable behavior differently: in **single** mode the
+first rung carries an **NC contact of the last relay in series with START**
+(line 1 can only be set while the last line is OFF, i.e. once per press); in
+**continuous** mode an **NO contact of the last relay** in parallel with START
+re-arms line 1 on the wrap. Both realizations satisfy the same contract — one
+START press runs the full sequence exactly once, in order (single), or the last
+step re-triggers the first (continuous) — which is what the tests pin
+behaviorally (`tests/golden/simultaneous-gating.test.ts` "Obs.2",
+`tests/golden/cycle-mode.simulation.test.ts`), not the wiring shape.
+**[HYPOTHESIS: equivalence]** pending verification against the deck PDF.
 
 ---
 

@@ -36,32 +36,34 @@ Status legend: `[x]` done, `[ ]` pending.
 
 ## Milestone 1 — Electropneumatic + Step-by-step end to end (FEAT-002)
 
-- [ ] **1.1 SequenceModel analysis** helpers: direct/indirect classification,
-  overlap detection. Tests. (REQ-VALID-OVERLAP)
-- [ ] **1.2 Step-by-step solver** `src/engine/step-by-step/`: one memory/step,
+- [x] **1.1 SequenceModel analysis** helpers: direct/indirect classification,
+  overlap detection. Tests. (REQ-VALID-OVERLAP) — `src/engine/analysis.ts`,
+  `tests/engine/analysis.test.ts`.
+- [x] **1.2 Step-by-step solver** `src/engine/step-by-step/`: one memory/step,
   set/reset/seal logic, arm-last-line rung. Produce electropneumatic
   `Circuit`. (REQ-SBS-*)
-- [ ] **1.3 Seal-bug test**: a test that FAILS if the SELO seal contact is
+- [x] **1.3 Seal-bug test**: a test that FAILS if the SELO seal contact is
   missing or mis-placed (a step drops when the actuator leaves the sensor).
-- [ ] **1.4 Validator** `src/validator/`: no duplicate sensors, every coil
+- [x] **1.4 Validator** `src/validator/`: no duplicate sensors, every coil
   driven, connection endpoints exist, cycle returns home. (REQ-VALID-*)
-- [ ] **1.5 Golden tests** `tests/golden/` for the selected step-by-step
+- [x] **1.5 Golden tests** `tests/golden/` for the selected step-by-step
   exercises (see below).
 
 ## Milestone 2 — Cascade (FEAT-003)
 
-- [ ] **2.1 Group division** `src/engine/cascade/`: no actuator with both signs
+- [x] **2.1 Group division** `src/engine/cascade/`: no actuator with both signs
   per group; `Nm` memory count; last-into-first merge per RULES §A3. (REQ-CASCADE-*)
-- [ ] **2.2 One-hot line logic** + memory reset on group transition.
-- [ ] **2.3 Golden tests** for cascade exercises.
+- [x] **2.2 One-hot line logic** + memory reset on group transition.
+- [x] **2.3 Golden tests** for cascade exercises.
 
 ## Milestone 3 — Layout, renderer, simulator, UI (FEAT-004)
 
-- [ ] **3.1 LayoutEngine** (geometry only).
-- [ ] **3.2 SVGRenderer** pneumatic + electrical (never decides logic).
+- [x] **3.1 LayoutEngine** (geometry only).
+- [x] **3.2 SVGRenderer** pneumatic + electrical (never decides logic).
   (REQ-RENDERER-NOLOGIC)
-- [ ] **3.3 Simulator** stepping the runtime state models; verify cycle.
-- [ ] **3.4 UI** (React/Vite) — best-effort; documented as un-installable here.
+- [x] **3.3 Simulator** stepping the runtime state models; verify cycle.
+  (Cascade: state-driven simulator, see cascade spec task 2.11.)
+- [x] **3.4 UI** (React/Vite) — best-effort; documented as un-installable here.
 
 ## Selected golden exercises
 

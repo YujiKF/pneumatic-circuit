@@ -24,6 +24,18 @@ There is **no LLM at runtime** — the generation is rule-based and reproducible
   (`src/pipeline.ts`), and a best-effort **React + Vite UI** (`src/ui/`). The
   layout engine and the SVG renderers are plain TypeScript producing SVG
   **strings** (no DOM/browser), unit-tested with `node --test`.
+- **Milestone 2 closure (cascade):** a **state-driven cascade simulator**
+  that executes the memory/line/gating logic (not a replay of the groups),
+  rejects broken circuits with typed faults, proves the memory chain returns to
+  rest over consecutive cycles, and gates the pipeline. See
+  `docs/AUDIT_MILESTONE_2_ROUND3.md`.
+- **Not yet implemented:** a dedicated **intuitive** solver (the UI option falls
+  back to step-by-step, with a warning and an overlap diagnosis) and the
+  **pneumatic step-by-step** / electropneumatic cascade variants (next
+  milestone, M3). The pneumatic/electropneumatic `Tipo` selector does not change
+  the technology yet: step-by-step is electropneumatic, cascade is pneumatic.
+- The demo page server (`server.ts`) runs under **Bun**: `bun server.ts`
+  (http://localhost:5173).
 
 ## Requirements
 
@@ -128,11 +140,13 @@ code base avoids constructs that would need transformation:
 src/
   domain/      interface-independent types (Sequence, Circuit, ...)
   parser/      text -> canonical SequenceModel (tokenizer + parser)
-  engine/      method solvers: intuitive/, cascade/, step-by-step/
+  engine/      method solvers: cascade/, step-by-step/ (+ analysis.ts:
+               direct/indirect + signal-overlap detection)
   validator/   circuit rule checks
   layout/      geometry assignment (no logic)
   renderer/    SVG output: pneumatic/, electrical/ (never decides logic)
-  simulator/   runtime stepping of state models
+  simulator/   runtime stepping of state models (cascade: state-driven,
+               fault-reporting, multi-cycle)
   ui/          React/Vite UI (best-effort; not installable in the sandbox)
 tests/
   parser/      parser unit tests
