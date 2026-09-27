@@ -6,7 +6,7 @@
  * layer assumes it. See docs/PMR3407_RULES.md, "Initial state".
  */
 
-import type { ActuatorId, InitialState, RestState } from './sequence.ts';
+import type { ActuatorId, InitialState, RestState, SequenceModel } from './sequence.ts';
 
 /**
  * Build the default initial state for a set of actuators: every actuator
@@ -44,4 +44,19 @@ export function initialStateFrom(
 /** Read the resting position of an actuator, defaulting to retracted. */
 export function restStateOf(state: InitialState, actuator: ActuatorId): RestState {
   return state.positions[actuator] ?? 'retracted';
+}
+
+/**
+ * Actuators whose position at the END of one pass of the sequence differs from
+ * their initial position (RULES §3: a cycle's initial and final states are
+ * equal). A non-empty result means the sequence does not return home, so it
+ * cannot repeat (BAIXO-1). Pure; derived only from the parsed sequence.
+ */
+export function nonReturningActuators(sequence: SequenceModel): ActuatorId[] {
+  const pos = new Map<ActuatorId, RestState>();
+  for (const a of sequence.actuators) pos.set(a, restStateOf(sequence.initialState, a));
+  for (const step of sequence.steps) {
+    for (const mv of step.movements) pos.set(mv.actuator, mv.direction === '+' ? 'extended' : 'retracted');
+  }
+  return sequence.actuators.filter((a) => pos.get(a) !== restStateOf(sequence.initialState, a));
 }

@@ -181,6 +181,12 @@ const HTML_PAGE = `<!DOCTYPE html>
       border: 1px solid #fecaca;
       color: #991b1b;
     }
+    .status-banner.warning {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+      margin-top: 8px;
+    }
     .tabs {
       display: flex;
       gap: 8px;
@@ -458,7 +464,10 @@ const HTML_PAGE = `<!DOCTYPE html>
         const resultsArea = document.getElementById('results-area');
 
         if (!result.ok) {
-          statusArea.innerHTML = \`<div class="status-banner error"><strong>Erro de Validação:</strong> \${result.error}</div>\`;
+          const simFaults = (result.simulation && result.simulation.faults) || [];
+          statusArea.innerHTML = \`<div class="status-banner error"><strong>Erro de Validação:</strong> \${result.error}</div>\`
+            + (result.warnings || []).map(w => \`<div class="status-banner warning"><strong>Aviso:</strong> \${w}</div>\`).join('')
+            + (simFaults.length > 0 ? \`<div class="status-banner error"><strong>Simulação:</strong><ul>\${simFaults.map(f => \`<li><code>\${f.code}</code> \${f.message}</li>\`).join('')}</ul></div>\` : '');
           resultsArea.style.display = 'none';
         } else {
           statusArea.innerHTML = \`
@@ -466,7 +475,7 @@ const HTML_PAGE = `<!DOCTYPE html>
               <span><strong>✓ Circuito Válido:</strong> Sequência \${reqData.sequence} sintetizada e verificada sem conflitos.</span>
               <span style="font-size: 12px; color: #15803d;">Normas PMR3407 / DIN ISO 5599</span>
             </div>
-          \`;
+          \` + (result.warnings || []).map(w => \`<div class="status-banner warning"><strong>Aviso:</strong> \${w}</div>\`).join('');
           
           document.getElementById('pneumatic-svg-wrapper').innerHTML = result.pneumaticSvg || '<p>Diagrama pneumático não disponível.</p>';
           document.getElementById('ladder-svg-wrapper').innerHTML = result.ladderSvg || '<p>Diagrama ladder não aplicável.</p>';
@@ -581,6 +590,18 @@ const HTML_PAGE = `<!DOCTYPE html>
               \`;
             });
             verifHtml += \`</tbody></table></div>\`;
+          }
+
+          if (result.simulation) {
+            const sim = result.simulation;
+            verifHtml += \`
+              <div style="margin-top: 20px;">
+                <h4 style="margin-bottom: 8px;">Simulação comportamental do ciclo</h4>
+                <p style="font-size: 13px;">\${sim.completed ? '✓' : '✗'} \${sim.cyclesCompleted}/\${sim.cycles} ciclo(s) completo(s)
+                  · retorno ao estado inicial: \${sim.balanced ? 'sim' : 'não'}
+                  · memórias em repouso: \${sim.restored ? 'sim' : 'não'}</p>
+                <p style="font-size: 13px;">Ordem física executada: <code>\${sim.executedMovements.join(' ')}</code></p>
+              </div>\`;
           }
 
           document.getElementById('validation-wrapper').innerHTML = verifHtml;

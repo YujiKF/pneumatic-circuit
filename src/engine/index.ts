@@ -37,3 +37,5 @@ export type {
   RungContact,
   RungCoil,
 } from './model.ts';
+export { classifySequence, detectSignalOverlap, analyzeSequence } from './analysis.ts';
+export type { SequenceKind, SignalOverlap, SequenceAnalysis } from './analysis.ts';

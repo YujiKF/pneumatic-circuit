@@ -25,7 +25,7 @@
  * No enums (Node strip-only): closed sets are string-literal unions.
  */
 
-import type { Movement, SequenceModel } from '../../domain/index.ts';
+import type { Movement, SequenceModel, Step } from '../../domain/index.ts';
 import type { CycleMode, PneumaticModel } from '../model.ts';
 import {
   cylinderId,
@@ -89,9 +89,10 @@ export function solveCascade(
     mergeLastIntoFirst: options.mergeLastIntoFirst ?? true,
   });
 
-  const groups = buildGroups(division);
+  const groups = buildGroups(sequence, division);
   const memories = buildMemories(division, groups);
   const transitions = buildTransitions(sequence, division, memories);
+  const returnTransition = buildReturnTransition(sequence, division, memories);
   const pneumatic = buildPneumatic(sequence.actuators);
   const sensorIds = collectSensorIds(groups, memories);
 
@@ -104,6 +105,7 @@ export function solveCascade(
     groups,
     memories,
     transitions,
+    ...(returnTransition !== undefined ? { returnTransition } : {}),
     pneumatic,
     startButtonId,
     numberOfGroups: division.numberOfGroups,
@@ -126,13 +128,24 @@ export function solveCascade(
  * Activation sensor: a group (other than the first) is handed control by the
  * arrival sensor of the LAST movement of the PREVIOUS group.
  */
-function buildGroups(division: GroupDivision): CascadeGroupModel[] {
+function buildGroups(sequence: SequenceModel, division: GroupDivision): CascadeGroupModel[] {
   const result: CascadeGroupModel[] = [];
   const flatGroups = division.groups;
+  const lastGroup = flatGroups[flatGroups.length - 1];
+  // Sensors whose activation wraps control back to line 1 (all members of the
+  // last step of the last group). Used to gate a merged-in tail (RULES §A3).
+  const wrapSensors =
+    flatGroups.length > 1 && lastGroup ? lastStepArrivals(sequence, lastGroup) : [];
 
   for (let g = 0; g < flatGroups.length; g++) {
     const group = flatGroups[g] as DividedGroup;
-    const movements = buildGroupMovements(group.movements);
+    const steps = group.stepIndices.map((si) => sequence.steps[si] as Step);
+    const tailSteps = g === 0 ? tailStepCount(steps, group.mergedTailCount) : 0;
+    const movements = buildGroupMovements(steps, {
+      firstIsCycleStart: g === 0,
+      tailStepCount: tailSteps,
+      wrapSensors,
+    });
 
     const activationSensorId =
       g === 0 ? undefined : lastArrivalSensor(flatGroups[g - 1] as DividedGroup);
@@ -149,6 +162,31 @@ function buildGroups(division: GroupDivision): CascadeGroupModel[] {
   return result;
 }
 
+/** How many trailing STEPS hold the merged-in tail movements. */
+function tailStepCount(steps: readonly Step[], tailMovements: number): number {
+  if (tailMovements <= 0) return 0;
+  let count = 0;
+  let acc = 0;
+  for (let i = steps.length - 1; i >= 0 && acc < tailMovements; i--) {
+    acc += (steps[i] as Step).movements.length;
+    count++;
+  }
+  return count;
+}
+
+/**
+ * Arrival sensors of every member of the last step a group executes before
+ * handing control forward (excluding a merged-in tail, see lastArrivalSensor).
+ */
+function lastStepArrivals(sequence: SequenceModel, group: DividedGroup): string[] {
+  const steps = group.stepIndices.map((si) => sequence.steps[si] as Step);
+  const handoffSteps = group.stepIndices.length - tailStepCount(steps, group.mergedTailCount);
+  const lastIdx = group.stepIndices[Math.max(0, handoffSteps - 1)];
+  const step = lastIdx === undefined ? undefined : sequence.steps[lastIdx];
+  if (!step) return [];
+  return step.movements.map((mv) => sensorIdForArrival(mv.actuator, mv.direction));
+}
+
 /**
  * Build the transitions view: for every transition from group k to group k+1,
  * list the memory id and the arrival sensor(s) of all members of the previous
@@ -163,28 +201,13 @@ function buildTransitions(
   const nm = division.numberOfMemories;
 
   for (let k = 1; k <= nm; k++) {
-    const fromGroup = k;
-    const toGroup = k + 1;
     const memory = memories[k - 1];
     const prevGroup = division.groups[k - 1];
-
-    const conditionSensorIds: string[] = [];
-    if (prevGroup && prevGroup.stepIndices.length > 0) {
-      const lastStepIndex = prevGroup.stepIndices[prevGroup.stepIndices.length - 1] as number;
-      const step = sequence.steps[lastStepIndex];
-      if (step) {
-        for (const mv of step.movements) {
-          conditionSensorIds.push(sensorIdForArrival(mv.actuator, mv.direction));
-        }
-      }
-    }
-    if (conditionSensorIds.length === 0 && memory) {
-      conditionSensorIds.push(memory.setSensorId);
-    }
-
+    const conditionSensorIds = prevGroup ? lastStepArrivals(sequence, prevGroup) : [];
+    if (conditionSensorIds.length === 0 && memory) conditionSensorIds.push(memory.setSensorId);
     transitions.push({
-      fromGroup,
-      toGroup,
+      fromGroup: k,
+      toGroup: k + 1,
       memoryId: memory ? memory.id : memoryId(k),
       conditionSensorIds,
     });
@@ -193,46 +216,108 @@ function buildTransitions(
   return transitions;
 }
 
-/** Build a group's cascade movements with intra-group gating sensors. */
-function buildGroupMovements(movements: readonly Movement[]): CascadeMovement[] {
+/**
+ * The wrap-around transition: last group -> line 1, piloting the RESET side of
+ * the last memory (MÉDIO-2). Undefined for a single-group cascade.
+ */
+function buildReturnTransition(
+  sequence: SequenceModel,
+  division: GroupDivision,
+  memories: readonly CascadeMemoryValve[],
+): CascadeTransition | undefined {
+  const last = division.groups[division.groups.length - 1];
+  const lastMemory = memories[memories.length - 1];
+  if (division.groups.length < 2 || !last || !lastMemory) return undefined;
+  return {
+    fromGroup: last.number,
+    toGroup: 1,
+    memoryId: lastMemory.id,
+    conditionSensorIds: lastStepArrivals(sequence, last),
+  };
+}
+
+interface GroupMovementOptions {
+  /** Group 1: its first step is fed through the START button. */
+  readonly firstIsCycleStart: boolean;
+  /** Number of trailing steps that are a merged-in tail (group 1 only). */
+  readonly tailStepCount: number;
+  /** Sensors tripped by the last step of the last group (wrap to line 1). */
+  readonly wrapSensors: readonly string[];
+}
+
+/**
+ * Build a group's cascade movements with intra-group gating sensors.
+ *
+ * Gating is STEP-aware: every movement of a step is gated by the arrival
+ * sensors of ALL members of the previous step in the group (series AND), so a
+ * simultaneous step's members start together and a step after a simultaneous
+ * step waits on every member (BAIXO-2). The first step of a group is fed by the
+ * line directly — except group 1's first step, which is fed through START, and
+ * the first step of a merged-in tail, which is gated by the wrap sensors (it
+ * only runs after control wraps back to line 1).
+ *
+ * A gate sensor equal to the movement's own arrival sensor would be
+ * self-referential (Finding A); such a step falls back to the previous distinct
+ * step's arrivals.
+ */
+function buildGroupMovements(
+  steps: readonly Step[],
+  opts: GroupMovementOptions,
+): CascadeMovement[] {
   const out: CascadeMovement[] = [];
-  let prevArrival: string | undefined;
-  let lastDistinctArrival: string | undefined;
+  const tailStart = steps.length - opts.tailStepCount;
+  let prevArrivals: string[] | undefined;
+  let lastDistinctArrivals: string[] | undefined;
 
-  for (const mv of movements) {
-    const arrival = sensorIdForArrival(mv.actuator, mv.direction);
-    // If a repeated movement in the same group trips the same arrival sensor,
-    // gating it on that same sensor produces a degenerate self-referential gate
-    // (startSensorId === arrivalSensorId). Fall back to the previous distinct
-    // sensor in the group (or undefined if none, driven directly by line).
-    let startSensorId = prevArrival;
-    if (startSensorId !== undefined && startSensorId === arrival) {
-      startSensorId = lastDistinctArrival;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i] as Step;
+    const arrivals = step.movements.map((mv) => sensorIdForArrival(mv.actuator, mv.direction));
+
+    let gate: string[] | undefined;
+    if (opts.tailStepCount > 0 && i === tailStart) {
+      gate = opts.wrapSensors.length > 0 ? [...opts.wrapSensors] : undefined;
+    } else if (i > 0) {
+      gate = prevArrivals;
+      if (gate !== undefined && gate.some((s) => arrivals.includes(s))) {
+        gate = lastDistinctArrivals;
+      }
+    }
+    const gatedByStart = opts.firstIsCycleStart && i === 0;
+
+    for (const mv of step.movements) {
+      const startSensorId = gate !== undefined ? gate[gate.length - 1] : undefined;
+      out.push({
+        actuator: mv.actuator,
+        direction: mv.direction,
+        pilotPort: pilotPort(mv.direction),
+        mainValveId: mainValveId(mv.actuator),
+        ...(startSensorId !== undefined ? { startSensorId, startSensorIds: [...(gate as string[])] } : {}),
+        ...(gatedByStart ? { gatedByStart: true } : {}),
+        arrivalSensorId: sensorIdForArrival(mv.actuator, mv.direction),
+      });
     }
 
-    out.push({
-      actuator: mv.actuator,
-      direction: mv.direction,
-      pilotPort: pilotPort(mv.direction),
-      mainValveId: mainValveId(mv.actuator),
-      // The first movement of a group is started by line pressurization; later
-      // movements are gated by the previous movement's arrival sensor.
-      ...(startSensorId !== undefined ? { startSensorId } : {}),
-      arrivalSensorId: arrival,
-    });
-
-    if (prevArrival !== undefined && prevArrival !== arrival) {
-      lastDistinctArrival = prevArrival;
+    if (prevArrivals !== undefined && !sameSet(prevArrivals, arrivals)) {
+      lastDistinctArrivals = prevArrivals;
     }
-    prevArrival = arrival;
+    prevArrivals = arrivals;
   }
 
   return out;
 }
 
-/** Arrival sensor of the LAST movement of a group. */
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
+}
+
+/**
+ * Arrival sensor of the LAST movement a group executes BEFORE handing control
+ * forward. For group 1 with a merged-in tail, the tail runs only after the
+ * wrap, so the hand-off happens at the end of the HEAD (not the tail).
+ */
 function lastArrivalSensor(group: DividedGroup): string {
-  const last = group.movements[group.movements.length - 1] as Movement;
+  const handoff = group.movements.length - group.mergedTailCount;
+  const last = group.movements[Math.max(0, handoff - 1)] as Movement;
   return sensorIdForArrival(last.actuator, last.direction);
 }
 
@@ -258,8 +343,13 @@ function buildMemories(
     // RESET pilot: the activation sensor of the group AFTER the target (k+2),
     // if it exists. When the next memory is set (its own set sensor trips) it
     // de-pilots this memory. The last memory has no downstream reset sensor.
+    // The LAST memory is reset by the wrap sensor (last arrival of the last
+    // group), returning control to line 1 (MÉDIO-2).
     const followingGroup = groups[k + 1];
-    const resetSensorId = followingGroup?.activationSensorId;
+    const lastGroup = groups[groups.length - 1] as CascadeGroupModel;
+    const lastMv = lastGroup.movements[lastGroup.movements.length - 1];
+    const resetSensorId =
+      followingGroup?.activationSensorId ?? (k === nm ? lastMv?.arrivalSensorId : undefined);
 
     memories.push({
       id: memoryId(k),
@@ -296,6 +386,7 @@ function collectSensorIds(
     if (group.activationSensorId !== undefined) set.add(group.activationSensorId);
     for (const mv of group.movements) {
       if (mv.startSensorId !== undefined) set.add(mv.startSensorId);
+      for (const s of mv.startSensorIds ?? []) set.add(s);
       set.add(mv.arrivalSensorId);
     }
   }

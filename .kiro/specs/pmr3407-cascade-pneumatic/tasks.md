@@ -131,6 +131,25 @@ complete), `[ ]` pending. Run `unset NODE_OPTIONS` before `node`/`tsc`.
   (all new cascade goldens + property tests + existing suite). Confirm no
   regression in the Milestone-1 tests. (REQ-CAS-ENV-*)
 
+## 2.11 Audit round 2 closure (AUDIT_MILESTONE_2_ROUND2)
+
+- [x] **2.11a State-driven simulator** `src/simulator/cascade.ts`: live line
+  derived from memory states; memory/main-valve pilots evaluated from sensor
+  state and line gating; one cylinder per physical event; derived `completed`,
+  `restored`, typed `faults`; preflight against the projected circuit;
+  multi-cycle. `FINDING B3/B4` are real passes (no `todo`). (CRÍTICO-2)
+- [x] **2.11b Chain return** — last memory RESET by the wrap sensor gated by the
+  last line (`resetSensorId`, `returnTransition`); proven over 3 cycles. (MÉDIO-2)
+- [x] **2.11c Non-returning warning** — `nonReturningActuators()` + pipeline
+  `warnings`. (BAIXO-1)
+- [x] **2.11d Simultaneous AND** — `startSensorIds` per step and memory SET
+  wired/simulated as the series AND of `conditionSensorIds`. (BAIXO-2)
+- [x] **2.11e Merged tail** — hand-off at the end of the group-1 head; tail
+  gated by the wrap sensor (bug exposed by the new simulator).
+- [x] **2.11f Pipeline** — runs 2 cycles; refuses a circuit that fails the
+  simulation; reports `simulation` on the Verificacao tab.
+  Tests: `tests/golden/cascade-simulator.test.ts`.
+
 ---
 
 ## Task ↔ requirement traceability (summary)

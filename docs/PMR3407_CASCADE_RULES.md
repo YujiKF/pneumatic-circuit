@@ -220,11 +220,13 @@ stated in the materials. **[MATERIAL]**
 
 - When the previous group ends on a **simultaneous** step (e.g. `(A- B-)`), the
   activation of the next line logically requires **all** members to have
-  arrived. **[REFINES §A6]** The existing model records the activation sensor as
-  the arrival sensor of the **last-listed** member (cosmetic, mirrors Milestone-1
-  Obs.3); a Milestone-2 task SHALL make the transition **condition** gate on the
-  full set (see tasks). The gating **logic** must use all members even if the
-  narrative cites one.
+  arrived. **[REFINES §A6]** `activationSensorId` / `setSensorId` still name the
+  **last-listed** member (display), but the memory SET pilot is wired and
+  simulated as the **series AND of every member** (`transitions[k].conditionSensorIds`).
+  The same holds INSIDE a group: every movement of a step is gated by the arrival
+  sensors of **all** members of the previous step (`CascadeMovement.startSensorIds`),
+  and members of one simultaneous step share that gate (they start together).
+  *(Closes Milestone-2 audit BAIXO-2.)*
 
 ### C5.3 Construction steps taught by the materials
 
@@ -254,10 +256,44 @@ Milestone-2 core** and recorded here only for completeness. **[MATERIAL]**
   movement is `-`). It SHALL **not** silently assume every cylinder starts
   retracted. The golden `B-C+A+B+C-A-` (B starts extended) exercises this and is
   already relied upon by the existing tests.
-- **Doc-gap note (Milestone-1 Obs.1):** the `extended`-inference rule itself is
-  not yet written in parent-doc §2. The cascade spec depends on the same
-  behavior; if §2 is later amended to formalize the inference, this section and
-  the golden expectations stay consistent.
+- The `extended`-inference rule is now formalized in parent-doc §2
+  (Milestone-1 Obs.1 closed); this section and the goldens are consistent with it.
+
+---
+
+## C6b. Start element and the wrap back to line 1
+
+**[REFINES §7 / C5]**
+
+- **START:** the first step of the cycle (group 1, first step) is fed by line 1
+  **through the start element** (`CascadeMovement.gatedByStart`), as in the
+  intuitive method (RULES §6 step 4). With START released the circuit is at
+  rest on line 1 (single cycle, RULES §9).
+- **Wrap / last memory reset (MÉDIO-2):** the arrival sensor(s) of the last
+  step of the LAST group, live only while the last line is pressurized, pilot
+  the RESET side of the last memory (`CascadeMemoryValve.resetSensorId`,
+  `CascadeLogicalModel.returnTransition`). Memory k < Nm is reset by memory
+  k+1's output (activating line k+2 resets memory k, C5 rule 3). Hence after the
+  last movement every memory is RESET and line 1 is live again.
+- **Merged tail:** when the last group is merged into group 1 (C4), the hand-off
+  from group 1 to group 2 happens at the end of the group-1 **head**; the tail's
+  first step is gated by the wrap sensor(s), so it only runs after control has
+  returned to line 1.
+
+## C6c. Behavioral simulation (acceptance oracle)
+
+`src/simulator/cascade.ts::runCascadeCycle` is **state-driven**: every settle
+round it derives the live line from the memory states, pressurizes a memory
+pilot only if its own line is live AND all its sensors are active, pressurizes a
+main-valve pilot only if the movement's line is live AND all its gate sensors are
+active (plus START for the first step), then moves **at most one cylinder**. It
+reports `completed` (no faults, exact physical order, last line reached),
+`restored` (memory chain at rest), `balanced`, and typed `faults`
+(`DEADLOCK`, `PILOT_CONFLICT` = signal overlap, `MEMORY_CONFLICT`,
+`LINE_EXCLUSIVITY`, `NOT_AT_REST`, plus preflight `UNKNOWN_SENSOR` /
+`UNKNOWN_VALVE` / `INCONSISTENT_MODEL` / `WIRING_MISSING` checked against the
+projected circuit). The pipeline runs two consecutive cycles and refuses a
+cascade circuit that does not complete them.
 
 ---
 

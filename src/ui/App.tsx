@@ -129,6 +129,11 @@ function ResultPanel(props: {
   return (
     <section className="result">
       {!result.ok && <p className="error" role="alert">{result.error}</p>}
+      {(result.warnings ?? []).map((w, i) => (
+        <p key={`w${i}`} className="warning" role="status">
+          Aviso: {w}
+        </p>
+      ))}
 
       <nav className="tabs">
         {TABS.map((t) => (
@@ -259,6 +264,26 @@ function VerificacaoTab(props: { result: GenerateResult }): JSX.Element {
           </li>
         ))}
       </ul>
+      {props.result.simulation !== undefined && (
+        <div className="simulacao">
+          <h4>Simulacao comportamental do ciclo</h4>
+          <p className={props.result.simulation.completed ? 'ok' : 'fail'}>
+            {props.result.simulation.cyclesCompleted}/{props.result.simulation.cycles} ciclo(s) completo(s); retorno ao
+            estado inicial: {props.result.simulation.balanced ? 'sim' : 'nao'}; memorias em repouso:{' '}
+            {props.result.simulation.restored ? 'sim' : 'nao'}.
+          </p>
+          <p>
+            Ordem fisica executada: <code>{props.result.simulation.executedMovements.join(' ')}</code>
+          </p>
+          <ul>
+            {props.result.simulation.faults.map((f, i) => (
+              <li key={i}>
+                <code>{f.code}</code> {f.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
