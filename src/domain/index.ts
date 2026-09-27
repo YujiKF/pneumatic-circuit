@@ -18,6 +18,7 @@ export {
   defaultInitialState,
   initialStateFrom,
   restStateOf,
+  nonReturningActuators,
 } from './initial-state.ts';
 
 export type {

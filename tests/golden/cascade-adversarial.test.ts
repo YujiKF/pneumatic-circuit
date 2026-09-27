@@ -103,8 +103,7 @@ test('FINDING B2: executed movements equal the target sequence, in order', () =>
 // broken. These probes currently pass on a broken model -> marked todo until
 // the simulator executes the PROJECTED circuit's memory/gating logic.
 // ---------------------------------------------------------------------------
-test('FINDING B3: simulator must reject a broken memory handoff', (t) => {
-  t.todo('Simulator replays the group model; it sets memories unconditionally and hardcodes completed=true');
+test('FINDING B3: simulator must reject a broken memory handoff', () => {
   const model = solve('A+B+A-B-');
   // Corrupt the memory set-sensor so the handoff to line 2 can never be piloted.
   const broken = structuredClone(model) as CascadeLogicalModel;
@@ -120,8 +119,7 @@ test('FINDING B3: simulator must reject a broken memory handoff', (t) => {
   assert.equal(executedAll, false, 'a broken memory handoff must not pass as a complete, balanced, full cycle');
 });
 
-test('FINDING B4: simulator must reject a gate that never opens', (t) => {
-  t.todo('executeMovement silently skips an ungatable movement but the cycle still reports completed & balanced');
+test('FINDING B4: simulator must reject a gate that never opens', () => {
   const model = solve('A+B+A-B-');
   const broken = structuredClone(model) as CascadeLogicalModel;
   // Make group 1's second movement (B+) gated by a sensor that never activates.
@@ -175,11 +173,30 @@ test('FINDING D (fix target): reused activation sensors must be gated by their g
 // second cycle can run. Pin the current shape; a simulator (Finding B) is the
 // real fix.
 // ---------------------------------------------------------------------------
-test('FINDING C: last memory has no downstream reset sensor (relies on supply line)', () => {
+test('FINDING C (resolved): the last memory is reset by the wrap sensor gated by the last line', () => {
   const model = solve('A+B-B+T(A-B-)B+');
   const last = model.memories[model.memories.length - 1]!;
   assert.equal(last.id, 'M3');
-  assert.equal(last.resetSensorId, undefined, 'documents the last memory has no sensor reset');
+  // Last group is [B+]; its arrival (2S2) wraps control back to line 1.
+  assert.equal(last.resetSensorId, '2S2');
+  assert.deepEqual(model.returnTransition, { fromGroup: 4, toGroup: 1, memoryId: 'M3', conditionSensorIds: ['2S2'] });
+  // Projection: M3 reset pilot is fed through a line-4-dedicated 2S2 instance, not the supply.
+  const circuit = toCascadeCircuit(model);
+  const drivers = circuit.connections.filter((c) => c.targetComponent === '0.3' && c.targetPort === '12');
+  assert.deepEqual(drivers.map((c) => c.sourceComponent), ['2S2_L4']);
+  assert.ok(circuit.connections.some((c) => c.sourceComponent === '0.3' && c.targetComponent === '2S2_L4'));
+});
+
+test('FINDING C (behavioral): the memory chain returns to rest and a second cycle runs', () => {
+  for (const seq of ['A+B+A-B-', 'A+B+B-A-', 'B-C+A+B+C-A-', 'A+B-B+T(A-B-)B+', 'A+B-A-C+B+C-']) {
+    const model = solve(seq);
+    const result = runCascadeCycle(model, { cycles: 3 });
+    assert.deepEqual(result.faults, [], `"${seq}" must run 3 cycles without faults`);
+    assert.equal(result.cyclesCompleted, 3);
+    assert.equal(result.restored, true, 'all memories RESET and L1 live at the end');
+    assert.equal(result.state.activeLineId, 'L1');
+    assert.deepEqual([...result.executedMovements], [...result.expectedMovements, ...result.expectedMovements, ...result.expectedMovements]);
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -39,6 +39,20 @@ export interface CascadeMovement {
    * `startSensorId` is then undefined.
    */
   readonly startSensorId?: string;
+  /**
+   * ALL sensors that must be active (AND, in series between the line and the
+   * pilot) for this movement to be commanded: the arrival sensors of EVERY
+   * member of the previous step in the group (BAIXO-2 / RULES §A6). Members of
+   * one simultaneous step share the same gate. `startSensorId` is the
+   * last-listed entry (kept for display). Undefined when ungated.
+   */
+  readonly startSensorIds?: readonly string[];
+  /**
+   * True for the first step of the cycle (group 1, first step): its pilot is
+   * fed by line 1 THROUGH the start button, so the cycle only begins when
+   * START is pressed (RULES §6 step 4 / §9).
+   */
+  readonly gatedByStart?: boolean;
   /** Sensor reached WHEN this movement completes, e.g. "1S2". */
   readonly arrivalSensorId: string;
 }
@@ -87,7 +101,12 @@ export interface CascadeMemoryValve {
   readonly valveId: string;
   /** Sensor id that pilots the SET side of this memory. */
   readonly setSensorId: string;
-  /** Sensor id that pilots the RESET side of this memory (undefined for last). */
+  /**
+   * Sensor id that pilots the RESET side of this memory. For memory k < Nm it
+   * is the activation sensor of group k+2 (the next memory takes over); for the
+   * LAST memory it is the wrap sensor (last arrival of the last group), which
+   * returns control to line 1. Undefined only if a model is hand-built.
+   */
   readonly resetSensorId?: string;
   /** Pressure line this memory hands control TO when set, e.g. "L2". */
   readonly activatesLineId: string;
@@ -105,6 +124,13 @@ export interface CascadeLogicalModel {
   readonly groups: readonly CascadeGroupModel[];
   readonly memories: readonly CascadeMemoryValve[];
   readonly transitions: readonly CascadeTransition[];
+  /**
+   * The wrap-around transition from the LAST group's line back to line 1
+   * (MÉDIO-2): its condition sensors (all members of the last step of the last
+   * group) pilot the RESET side of the last memory, which returns the whole
+   * chain to rest. Undefined when there is a single group (no memories).
+   */
+  readonly returnTransition?: CascadeTransition;
   readonly pneumatic: PneumaticModel;
   /** Id of the start button/valve, e.g. "E". */
   readonly startButtonId: string;

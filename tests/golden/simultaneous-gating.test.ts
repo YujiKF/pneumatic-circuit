@@ -89,3 +89,23 @@ test('REAL settleLadder: the next step waits until ALL group members arrive', ()
   settleLadder(model, state, []);
   assert.equal(relayOn(state, 'K2'), true, 'K2 fires once ALL members have arrived');
 });
+
+// M1 audit Obs.3: the narrative 'enable-next' event must cite EVERY enabling
+// sensor of a simultaneous predecessor, not only the last-listed one.
+test('Obs.3: enable-next after a simultaneous step lists all member sensors', () => {
+  const model = solve('(A+B+)(A-B-)');
+  const ev = runCycle(model, { pulseStart: true }).events.find((e) => e.kind === 'enable-next');
+  assert.ok(ev !== undefined, 'an enable-next event is emitted');
+  assert.deepEqual(ev.id.split(' + ').sort(), ['1S2', '2S2']);
+});
+
+// M1 audit Obs.2: the single-cycle arming realization (last relay NC in series
+// with START) must be BEHAVIORALLY equivalent to the deck's extra arming
+// branch: one START press runs the full sequence exactly once, in order.
+test('Obs.2: single-cycle arming runs exactly one cycle per START press', () => {
+  const model = solve('A+B+A-B-');
+  const first = runCycle(model, { pulseStart: true });
+  assert.equal(first.completed, true);
+  const moves = first.events.filter((e) => e.kind === 'cylinder-arrive').map((e) => `${e.id}${e.detail}`);
+  assert.deepEqual(moves, ['AEXTENDED', 'BEXTENDED', 'ARETRACTED', 'BRETRACTED']);
+});

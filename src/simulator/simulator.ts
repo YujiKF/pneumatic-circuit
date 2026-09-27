@@ -144,9 +144,15 @@ export function settleLadder(
         if (target === 'ON') {
           const step = model.steps.find((s) => s.relayId === rung.coil.id);
           if (step !== undefined && !step.enabledByStart && step.enableSensorId !== undefined) {
+            // List EVERY enabling sensor (a simultaneous predecessor has
+            // several), not only the last-listed one (M1 audit Obs.3).
+            const enabling =
+              step.enableSensorIds !== undefined && step.enableSensorIds.length > 0
+                ? step.enableSensorIds
+                : [step.enableSensorId];
             events.push({
               kind: 'enable-next',
-              id: step.enableSensorId,
+              id: enabling.join(' + '),
               detail: rung.coil.id,
             });
           }

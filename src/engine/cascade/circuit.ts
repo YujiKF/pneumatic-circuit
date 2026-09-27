@@ -67,13 +67,59 @@ export function toCascadeCircuit(model: CascadeLogicalModel): Circuit {
   const memByActivatesLine = new Map<string, string>();
   for (const mem of model.memories) memByActivatesLine.set(mem.activatesLineId, mem.valveId);
 
-  // Track how many times each setSensorId is used across memories.
-  // When an activation sensor is reused across multiple memories (e.g. 2S1 for M1 and M3),
-  // each transition uses a dedicated limit switch component gated by the preceding group's line
-  // so no sensor raw-drives multiple memory pilots (Finding D).
-  const setSensorUsage = new Map<string, number>();
-  for (const mem of model.memories) {
-    setSensorUsage.set(mem.setSensorId, (setSensorUsage.get(mem.setSensorId) ?? 0) + 1);
+  // Memory pilots driven by sensors: every SET pilot, plus the RESET pilot of
+  // the LAST memory (the wrap back to line 1, MÉDIO-2). The other RESET pilots
+  // are driven by the next memory's output (activating line k+2 resets memory
+  // k, RULES C5.3). A sensor that drives more than one memory pilot gets a
+  // dedicated instance per line (`2S1_L1`, `2S1_L3`) fed by that line, so no
+  // raw sensor pilots several memories (Finding D).
+  const pilotUsage = new Map<string, number>();
+  const bump = (id: string): void => {
+    pilotUsage.set(id, (pilotUsage.get(id) ?? 0) + 1);
+  };
+  const setConditions = model.memories.map((mem, idx) =>
+    conditionsOf(mem.setSensorId, model.transitions[idx]?.conditionSensorIds),
+  );
+  const lastMem = model.memories[model.memories.length - 1];
+  const wrapConditions =
+    lastMem !== undefined
+      ? conditionsOf(lastMem.resetSensorId, model.returnTransition?.conditionSensorIds)
+      : [];
+  for (const conds of setConditions) for (const id of conds) bump(id);
+  for (const id of wrapConditions) bump(id);
+
+  const lineSource = (line: string): string => memByActivatesLine.get(line) ?? model.startButtonId;
+  const addedSensorIds = new Set<string>(model.sensorIds);
+
+  /** Wire line -> s1 -> s2 -> ... -> target:port (series AND of sensors). */
+  const wireSeries = (
+    line: string,
+    sensors: readonly string[],
+    target: string,
+    port: string,
+    dedicated: boolean,
+  ): void => {
+    let from = lineSource(line);
+    let fromPort = '2';
+    for (const raw of sensors) {
+      const id = dedicated && (pilotUsage.get(raw) ?? 0) > 1 ? `${raw}_${line}` : raw;
+      if (id !== raw && !addedSensorIds.has(id)) {
+        addedSensorIds.add(id);
+        components.push(sensorInstance(model, raw, id));
+      }
+      push({ sourceComponent: from, sourcePort: fromPort, targetComponent: id, targetPort: 'in', signalType: 'pneumatic' });
+      from = id;
+      fromPort = 'out';
+    }
+    push({ sourceComponent: from, sourcePort: fromPort, targetComponent: target, targetPort: port, signalType: 'pneumatic' });
+  };
+
+  const seen = new Set<string>();
+  function push(c: Connection): void {
+    const key = `${c.sourceComponent}:${c.sourcePort}>${c.targetComponent}:${c.targetPort}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    connections.push(c);
   }
 
   for (let idx = 0; idx < model.memories.length; idx++) {
@@ -85,104 +131,30 @@ export function toCascadeCircuit(model: CascadeLogicalModel): Circuit {
       actuation: 'double-pilot',
     });
 
-    // Group line feeding this transition:
-    const deactLine = mem.deactivatesLineId; // line k
-    const lineSourceComp = memByActivatesLine.get(deactLine) ?? model.startButtonId;
-    const lineSourcePort = '2';
+    // SET pilot (14): the activation sensor(s), live only while line k is.
+    wireSeries(mem.deactivatesLineId, setConditions[idx]!, mem.valveId, '14', true);
 
-    // If the activation sensor is reused across memory pilots, disambiguate by its group line:
-    const isReused = (setSensorUsage.get(mem.setSensorId) ?? 0) > 1;
-    const setDriverId = isReused ? `${mem.setSensorId}_${deactLine}` : mem.setSensorId;
-
-    if (isReused) {
-      // Ensure the disambiguated sensor component exists in components
-      const match = /^(\d+)S([12])/.exec(mem.setSensorId);
-      const actIdx = match ? parseInt(match[1]!, 10) - 1 : 0;
-      const actuator = model.actuators[actIdx] ?? 'A';
-      const position = match && match[2] === '1' ? 'retracted' : 'extended';
-      components.push({
-        kind: 'sensor',
-        id: setDriverId,
-        actuator,
-        position,
-      });
-      // Line feeds the sensor inlet:
-      connections.push({
-        sourceComponent: lineSourceComp,
-        sourcePort: lineSourcePort,
-        targetComponent: setDriverId,
-        targetPort: 'in',
-        signalType: 'pneumatic',
-      });
+    // RESET pilot (12): the next memory's output for k < Nm; for the last
+    // memory the wrap sensor(s), live only while the last line is.
+    const nextMem = model.memories[idx + 1];
+    if (nextMem) {
+      push({ sourceComponent: nextMem.valveId, sourcePort: '2', targetComponent: mem.valveId, targetPort: '12', signalType: 'pneumatic' });
+    } else if (wrapConditions.length > 0) {
+      wireSeries(mem.activatesLineId, wrapConditions, mem.valveId, '12', true);
+    } else {
+      push({ sourceComponent: model.startButtonId, sourcePort: '2', targetComponent: mem.valveId, targetPort: '12', signalType: 'pneumatic' });
     }
 
-    // SET pilot (port 14) driven by the activation sensor
-    connections.push({
-      sourceComponent: setDriverId,
-      sourcePort: 'out',
-      targetComponent: mem.valveId,
-      targetPort: '14',
-      signalType: 'pneumatic',
-    });
-
-    // RESET pilot (port 12): In PMR3407 cascade, activating the next memory/line
-    // (or supply for the last memory) resets this memory (RULES C5.3).
-    // The next memory valve's port 2 (or supply line) provides the reset signal.
-    const nextMem = model.memories[idx + 1];
-    const resetDriver = nextMem ? nextMem.valveId : model.startButtonId;
-    const resetPort = '2';
-    connections.push({
-      sourceComponent: resetDriver,
-      sourcePort: resetPort,
-      targetComponent: mem.valveId,
-      targetPort: '12',
-      signalType: 'pneumatic',
-    });
-
     // Supply feeds the memory valve inlet (port 1).
-    connections.push({
-      sourceComponent: model.startButtonId,
-      sourcePort: '2',
-      targetComponent: mem.valveId,
-      targetPort: '1',
-      signalType: 'pneumatic',
-    });
+    push({ sourceComponent: model.startButtonId, sourcePort: '2', targetComponent: mem.valveId, targetPort: '1', signalType: 'pneumatic' });
   }
 
-  // --- pressure lines: each group line drives its movements' main valve pilot.
-
+  // --- pressure lines: each group line drives its movements' main valve
+  // pilot, through the movement's intra-group gate sensor(s) in series.
   for (const group of model.groups) {
-    const lineSourceComp = memByActivatesLine.get(group.lineId) ?? model.startButtonId;
-    const lineSourcePort = lineSourceComp === model.startButtonId ? '2' : '2';
     for (const mv of group.movements) {
-      // A gated movement takes the line signal through its intra-group sensor;
-      // the first movement of the group takes the line signal directly.
-      if (mv.startSensorId !== undefined && sensorSet.has(mv.startSensorId)) {
-        // line -> sensor.in ; sensor.out -> main valve pilot
-        connections.push({
-          sourceComponent: lineSourceComp,
-          sourcePort: lineSourcePort,
-          targetComponent: mv.startSensorId,
-          targetPort: 'in',
-          signalType: 'pneumatic',
-        });
-        connections.push({
-          sourceComponent: mv.startSensorId,
-          sourcePort: 'out',
-          targetComponent: mv.mainValveId,
-          targetPort: mv.pilotPort,
-          signalType: 'pneumatic',
-        });
-      } else {
-        // first movement of the group: line pressurization drives the pilot.
-        connections.push({
-          sourceComponent: lineSourceComp,
-          sourcePort: lineSourcePort,
-          targetComponent: mv.mainValveId,
-          targetPort: mv.pilotPort,
-          signalType: 'pneumatic',
-        });
-      }
+      const gate = [...new Set([...(mv.startSensorIds ?? []), ...(mv.startSensorId !== undefined ? [mv.startSensorId] : [])])];
+      wireSeries(group.lineId, gate, mv.mainValveId, mv.pilotPort, false);
     }
   }
 
@@ -201,6 +173,21 @@ export function toCascadeCircuit(model: CascadeLogicalModel): Circuit {
     groups: toCascadeGroups(model),
     explanation: buildExplanation(model),
   };
+}
+
+/** Condition list for a memory pilot: all transition sensors, else the single id. */
+function conditionsOf(single: string | undefined, all: readonly string[] | undefined): string[] {
+  if (all !== undefined && all.length > 0) return [...all];
+  return single !== undefined ? [single] : [];
+}
+
+/** A line-dedicated instance of a stroke-end sensor, e.g. "2S1_L3". */
+function sensorInstance(model: CascadeLogicalModel, raw: string, id: string): Sensor {
+  const match = /^(\d+)S([12])/.exec(raw);
+  const actIdx = match ? parseInt(match[1]!, 10) - 1 : 0;
+  const actuator = model.actuators[actIdx] ?? model.actuators[0] ?? 'A';
+  const position = match && match[2] === '1' ? 'retracted' : 'extended';
+  return { kind: 'sensor', id, actuator, position };
 }
 
 /** Emit both stroke-end sensors for every referenced sensor id. */
